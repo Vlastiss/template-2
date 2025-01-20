@@ -1,21 +1,27 @@
 "use client";
 
 import React, { createContext, useContext, useEffect, useState } from "react";
-import { signInWithPopup, GoogleAuthProvider, signOut as firebaseSignOut } from "firebase/auth";
-import { User } from "firebase/auth";
+import { 
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  signOut as firebaseSignOut,
+  User 
+} from "firebase/auth";
 import { auth } from "../firebase/firebase";
 
 interface AuthContextType {
   user: User | null;
   loading: boolean;
-  signInWithGoogle: () => Promise<void>;
+  signIn: (email: string, password: string) => Promise<void>;
+  signUp: (email: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType>({
   user: null,
   loading: true,
-  signInWithGoogle: async () => {},
+  signIn: async () => {},
+  signUp: async () => {},
   signOut: async () => {},
 });
 
@@ -40,12 +46,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => unsubscribe();
   }, []);
 
-  const signInWithGoogle = async () => {
-    const provider = new GoogleAuthProvider();
+  const signIn = async (email: string, password: string) => {
     try {
-      await signInWithPopup(auth, provider);
+      await signInWithEmailAndPassword(auth, email, password);
     } catch (error) {
-      console.error("Error signing in with Google", error);
+      console.error("Error signing in with email/password", error);
+      throw error;
+    }
+  };
+
+  const signUp = async (email: string, password: string) => {
+    try {
+      await createUserWithEmailAndPassword(auth, email, password);
+    } catch (error) {
+      console.error("Error signing up with email/password", error);
       throw error;
     }
   };
@@ -60,7 +74,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, signInWithGoogle, signOut: signOutUser }}>
+    <AuthContext.Provider value={{ 
+      user, 
+      loading, 
+      signIn,
+      signUp,
+      signOut: signOutUser 
+    }}>
       {children}
     </AuthContext.Provider>
   );
