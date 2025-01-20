@@ -4,7 +4,6 @@ A web-based platform to manage job assignments and tracking for a handyman compa
 Technology Stack
 Frontend:
 - React.js
-- Shadcn/ui component library
 - Tailwind CSS for styling
 - Lucide Icons for iconography
 
@@ -78,7 +77,6 @@ Platform Requirements
 - Mobile-responsive design using Tailwind CSS
 - Cross-browser compatibility
 - Offline capabilities using Firebase offline persistence
-- Component-driven UI development with Shadcn/ui
 
 Security Requirements
 
