@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { collection, addDoc, serverTimestamp, getDocs } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { db, storage } from "@/lib/firebase/firebase";
-import { Wand2, Upload } from "lucide-react";
+import { Wand2, Upload, LoaderPinwheel } from "lucide-react";
 import { enhanceJobDescription } from "@/lib/utils/openai";
 
 interface JobFormData {
@@ -64,26 +64,58 @@ export default function NewJobPage() {
     setIsSubmitting(true);
 
     try {
-      // Upload files first
-      const uploadedUrls = await Promise.all(
-        files.map(async (file) => {
-          const storageRef = ref(storage, `jobs/${Date.now()}-${file.name}`);
-          await uploadBytes(storageRef, file);
-          return getDownloadURL(storageRef);
-        })
-      );
+      // First, format the description
+      const enhancedDescription = await enhanceJobDescription(formData.description);
+      if (enhancedDescription) {
+        // Extract the title from the enhanced description
+        const lines = enhancedDescription.split('\n');
+        let title = '';
+        
+        // Look for the Job Title line
+        for (const line of lines) {
+          if (line.toLowerCase().includes('job title') || line.toLowerCase().includes('job name')) {
+            title = line.split(':')[1]?.trim() || '';
+            break;
+          }
+        }
 
-      const jobsRef = collection(db, "jobs");
-      await addDoc(jobsRef, {
-        ...formData,
-        attachments: uploadedUrls,
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-      });
-      
-      router.push("/jobs");
-    } catch (err) {
-      setError("Failed to create job. Please try again.");
+        // If no title was found in the formatted text, generate a simple one from the first line
+        if (!title) {
+          title = lines[0].replace(/^[-*•]/, '').trim();
+        }
+
+        // Ensure we have a title
+        if (!title) {
+          title = 'Job ' + new Date().toISOString();
+        }
+
+        // Upload files
+        const uploadedUrls = await Promise.all(
+          files.map(async (file) => {
+            const storageRef = ref(storage, `jobs/${Date.now()}-${file.name}`);
+            await uploadBytes(storageRef, file);
+            return getDownloadURL(storageRef);
+          })
+        );
+
+        // Create job with enhanced description and title
+        const jobsRef = collection(db, "jobs");
+        const timestamp = serverTimestamp();
+        await addDoc(jobsRef, {
+          ...formData,
+          title,
+          description: enhancedDescription,
+          attachments: uploadedUrls,
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        });
+        
+        router.push("/jobs");
+      }
+    } catch (err: any) {
+      setError(err.message || "Failed to create job. Please try again.");
+      console.error("Job creation error:", err);
+    } finally {
       setIsSubmitting(false);
     }
   };
@@ -155,23 +187,9 @@ export default function NewJobPage() {
       <form onSubmit={handleSubmit} className="space-y-6">
         <div className="bg-white p-6 rounded-lg shadow-sm border">
           <div className="space-y-4">
-            {/* <div>
-              <label htmlFor="title" className="block text-sm font-medium text-gray-700 mb-1">
-                Job Title
-              </label>
-              <input
-                type="text"
-                name="title"
-                id="title"
-                value={formData.title}
-                onChange={handleChange}
-                className="w-full p-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500"
-              />
-            </div> */}
-
             <div>
               <label htmlFor="description" className="block text-sm font-medium text-gray-700 mb-1">
-                Job Description
+                Customer message
               </label>
               <textarea
                 name="description"
@@ -180,7 +198,7 @@ export default function NewJobPage() {
                 placeholder="Insert data from email"
                 value={formData.description}
                 onChange={handleChange}
-                className="w-full p-4 text-gray-900 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500"
+                className="w-full p-4 text-gray-900  border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500"
               />
             </div>
 
@@ -262,38 +280,23 @@ export default function NewJobPage() {
           )}
 
           <div className="mt-6 flex justify-end gap-4">
-            {!isFormatted ? (
-              <Button
-                type="button"
-                onClick={handleEnhanceDescription}
-                disabled={isEnhancing || !formData.description.trim()}
-                className="px-6 py-3 bg-blue-600 text-white hover:bg-blue-700 rounded-lg flex items-center gap-2"
-              >
-                {isEnhancing ? (
-                  "Formatting..."
-                ) : (
-                  <>
-                    <Wand2 className="w-5 h-5" />
-                    Format Job
-                  </>
-                )}
-              </Button>
-            ) : (
-              <Button
-                type="submit"
-                disabled={isSubmitting}
-                className="px-6 py-3 bg-green-600 text-white hover:bg-green-700 rounded-lg flex items-center gap-2"
-              >
-                {isSubmitting ? (
-                  "Uploading..."
-                ) : (
-                  <>
-                    <Upload className="w-5 h-5" />
-                    Upload Job
-                  </>
-                )}
-              </Button>
-            )}
+            <Button
+              type="submit"
+              disabled={isSubmitting || !formData.description.trim()}
+              className="px-6 py-3 bg-green-600 text-white hover:bg-green-700 rounded-lg flex items-center gap-2"
+            >
+              {isSubmitting ? (
+                <>
+                  <LoaderPinwheel className="w-5 h-5 animate-spin" />
+                  Processing...
+                </>
+              ) : (
+                <>
+                  <Upload className="w-5 h-5" />
+                  Create Job
+                </>
+              )}
+            </Button>
           </div>
         </div>
       </form>

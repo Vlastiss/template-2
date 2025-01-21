@@ -140,7 +140,9 @@ export default function JobsPage() {
                     {job.expectedCompletionDate ? formatDate(job.expectedCompletionDate) : 'Not set'}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {job.createdAt?.toDate()?.toLocaleDateString() || 'N/A'}
+                    {typeof job.createdAt === 'object' && job.createdAt?.toDate ? 
+                      job.createdAt.toDate().toLocaleDateString() : 
+                      'N/A'}
                   </td>
                 </tr>
               ))}
