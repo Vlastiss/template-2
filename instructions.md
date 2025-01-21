@@ -122,20 +122,6 @@ import { getAnalytics } from "firebase/analytics";
 // TODO: Add SDKs for Firebase products that you want to use
 // https://firebase.google.com/docs/web/setup#available-libraries
 
-// Your web app's Firebase configuration
-// For Firebase JS SDK v7.20.0 and later, measurementId is optional
-
-const firebaseConfig = {
-  apiKey: "AIzaSyC_j7SRFosa0vk8IPuONIEF7Ae66-Nc45I",
-  authDomain: "imageuploaddb-b8d8e.firebaseapp.com",
-  databaseURL: "https://imageuploaddb-b8d8e-default-rtdb.europe-west1.firebasedatabase.app",
-  projectId: "imageuploaddb-b8d8e",
-  storageBucket: "imageuploaddb-b8d8e.firebasestorage.app",
-  messagingSenderId: "687321534931",
-  appId: "1:687321534931:web:17d2d710fa7051b15a9f26",
-  measurementId: "G-XWBX6JHJ7F"
-};
-
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
 const analytics = getAnalytics(app);
@@ -158,9 +144,6 @@ clientAddress
 (string)
 
 clientContact
-(string)
-
-clientName
 (string)
 
 createdAt
