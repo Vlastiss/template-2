@@ -24,14 +24,19 @@ export async function POST(req: Request) {
       messages: [
         {
           role: 'system',
-          content: `Format the job information into these sections:
-- Job Title/Name
+          content: `Format the job information into these sections, starting with a clear and concise job title:
+- Job Title/Name (create a descriptive title based on the job details or adress)
 - Client Details (name, contact, address)
 - Job Description
-- Priority Level (if mentioned)
-- Timeline/Deadline
-- Required Tools/Materials
-- Special Instructions (if any)`
+- Job Timeline/Deadline
+
+Make the Job Title descriptive and professional, summarizing the main task.
+
+Bassed on the Job Description, create a timeline/deadline for the job.
+
+Bassed on the Job Description, create a list of required tools/materials for the job.
+
+also Bassed on the Job Description, create a list of instructions on how to complete the job.`
         },
         {
           role: 'user',
