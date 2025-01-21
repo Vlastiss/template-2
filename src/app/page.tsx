@@ -6,6 +6,7 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { collection, query, orderBy, onSnapshot } from "firebase/firestore";
 import { db } from "@/lib/firebase/firebase";
+import { PlusCircle } from "lucide-react";
 
 interface Job {
   id: string;
@@ -22,7 +23,7 @@ interface JobCounts {
 }
 
 export default function Home() {
-  const { user } = useAuth();
+  const { user, isAdmin } = useAuth();
   const [jobs, setJobs] = useState<Job[]>([]);
   const [jobCounts, setJobCounts] = useState<JobCounts>({
     active: 0,
@@ -69,7 +70,12 @@ export default function Home() {
         <h1 className="text-4xl font-bold text-gray-900">Welcome to Handyman Jobs</h1>
         <p className="text-xl text-gray-600">Please sign in to manage your jobs</p>
         <Link href="/login">
-          <Button size="lg">Sign In</Button>
+          <Button 
+            size="lg"
+            className="bg-blue-600 hover:bg-blue-700 text-white px-8 py-3 text-lg"
+          >
+            Sign In
+          </Button>
         </Link>
       </div>
     );
@@ -77,11 +83,17 @@ export default function Home() {
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-center">
+      <div className="flex justify-between items-center bg-white p-6 rounded-lg shadow-sm border">
         <h1 className="text-3xl font-bold text-gray-900">Dashboard</h1>
-        {user.email?.includes("admin") && (
+        {isAdmin() && (
           <Link href="/jobs/new">
-            <Button size="lg" className="bg-blue-600 hover:bg-blue-700">Create New Job</Button>
+            <Button 
+              size="lg"
+              className="bg-blue-600 hover:bg-blue-700 text-white px-8 py-3 text-lg font-semibold flex items-center gap-2"
+            >
+              <PlusCircle className="w-6 h-6" />
+              Create New Job
+            </Button>
           </Link>
         )}
       </div>
@@ -141,7 +153,7 @@ export default function Home() {
             </div>
           ) : (
             <div className="text-gray-600 text-center py-8">
-              No jobs found. {user.email?.includes("admin") ? "Create your first job!" : "Check back later for assignments."}
+              No jobs found. {isAdmin() ? "Create your first job!" : "Check back later for assignments."}
             </div>
           )}
         </div>

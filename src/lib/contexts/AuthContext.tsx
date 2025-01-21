@@ -9,12 +9,23 @@ import {
 } from "firebase/auth";
 import { auth } from "../firebase/firebase";
 
+// Get admin emails from environment variable
+const getAdminEmails = () => {
+  const adminEmails = process.env.NEXT_PUBLIC_ADMIN_EMAILS;
+  if (!adminEmails) {
+    console.warn('No admin emails configured in environment variables');
+    return [];
+  }
+  return adminEmails.split(',').map(email => email.trim().toLowerCase());
+};
+
 interface AuthContextType {
   user: User | null;
   loading: boolean;
   signIn: (email: string, password: string) => Promise<void>;
   signUp: (email: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
+  isAdmin: () => boolean;
 }
 
 const AuthContext = createContext<AuthContextType>({
@@ -23,6 +34,7 @@ const AuthContext = createContext<AuthContextType>({
   signIn: async () => {},
   signUp: async () => {},
   signOut: async () => {},
+  isAdmin: () => false,
 });
 
 export function useAuth() {
@@ -73,13 +85,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  const isAdmin = () => {
+    if (!user?.email) return false;
+    const adminEmails = getAdminEmails();
+    return adminEmails.includes(user.email.toLowerCase());
+  };
+
   return (
     <AuthContext.Provider value={{ 
       user, 
       loading, 
       signIn,
       signUp,
-      signOut: signOutUser 
+      signOut: signOutUser,
+      isAdmin 
     }}>
       {children}
     </AuthContext.Provider>

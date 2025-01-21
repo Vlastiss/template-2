@@ -6,10 +6,10 @@ import { Button } from "./ui/button";
 import { UserCircle, LogOut, PlusCircle } from "lucide-react";
 
 export default function Navbar() {
-  const { user, signOut } = useAuth();
+  const { user, signOut, isAdmin } = useAuth();
 
   return (
-    <nav className="bg-white shadow-md border-b">
+    <nav className="bg-white shadow-md border-b sticky top-0 z-50">
       <div className="container mx-auto px-4">
         <div className="flex justify-between items-center h-16">
           <Link href="/" className="font-bold text-2xl text-gray-800">
@@ -25,7 +25,7 @@ export default function Navbar() {
                 >
                   Jobs
                 </Link>
-                {user.email?.includes("admin") && (
+                {isAdmin() && (
                   <>
                     <Link 
                       href="/employees" 
@@ -36,7 +36,7 @@ export default function Navbar() {
                     <Link href="/jobs/new">
                       <Button 
                         size="lg"
-                        className="bg-blue-600 hover:bg-blue-700 text-white font-semibold shadow-sm flex items-center gap-2 px-6"
+                        className="bg-blue-600 hover:bg-blue-700 text-white font-semibold shadow-sm flex items-center gap-2 px-6 py-2.5 text-base"
                       >
                         <PlusCircle className="w-5 h-5" />
                         Create Job
@@ -45,8 +45,10 @@ export default function Navbar() {
                   </>
                 )}
                 <div className="flex items-center gap-2 border-l pl-6">
-                  <UserCircle className="w-6 h-6 text-gray-600" />
-                  <span className="text-sm font-medium text-gray-700">{user.email}</span>
+                  <div className="flex items-center gap-2">
+                    <UserCircle className="w-6 h-6 text-gray-600" />
+                    <span className="text-sm font-medium text-gray-700">{user.email}</span>
+                  </div>
                   <Button
                     variant="ghost"
                     size="sm"
@@ -62,7 +64,7 @@ export default function Navbar() {
               <Link href="/login">
                 <Button 
                   size="lg"
-                  className="bg-blue-600 hover:bg-blue-700 text-white font-semibold shadow-sm"
+                  className="bg-blue-600 hover:bg-blue-700 text-white font-semibold shadow-sm px-6 py-2.5 text-base"
                 >
                   Sign In
                 </Button>
