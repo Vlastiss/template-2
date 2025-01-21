@@ -128,6 +128,8 @@ const analytics = getAnalytics(app);
 
 ## jobs template 
 
+OpenAI-Job-Template-{
+
 assignedToId
 (string)
 
@@ -174,3 +176,5 @@ title
 
 updatedAt
 "2025-01-08T20:34:18.789Z"
+
+}
