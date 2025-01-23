@@ -1,12 +1,12 @@
 "use client";
 
 import { Fragment, useEffect, useState } from "react";
-import { collection, query, orderBy, onSnapshot, deleteDoc, doc, getDoc } from "firebase/firestore";
+import { collection, query, orderBy, onSnapshot, deleteDoc, doc, getDoc, Timestamp } from "firebase/firestore";
 import { db } from "@/lib/firebase/firebase";
 import { useAuth } from "@/lib/hooks/useAuth";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
-import { ArrowUpDown, ChevronDown, ChevronUp, Info, Trash2 } from "lucide-react";
+import { ArrowUpDown, ChevronDown, ChevronUp, Info, Trash2, ChevronRight } from "lucide-react";
 import {
   Table,
   TableBody,
@@ -32,9 +32,10 @@ interface Job {
   clientName: string;
   clientAddress: string;
   clientPhone: string;
-  status: string;
-  startTime: string;
-  createdAt: any;
+  status: 'pending' | 'in-progress' | 'completed';
+  startTime: Timestamp | Date | string | null;
+  createdAt: Timestamp | null;
+  updatedAt: Timestamp | null;
   description?: string;
 }
 
@@ -117,69 +118,71 @@ export default function JobsPage() {
         let clientAddress = '';
         let clientPhone = '';
         let jobDescription = '';
+        let title = '';
+        let currentSection = '';
         
         if (data.description) {
           const lines = data.description.split('\n');
-          let isInJobDescription = false;
           
           for (let i = 0; i < lines.length; i++) {
             const line = lines[i].trim();
-            
-            // Extract client details
-            if (line === '### Client Details') {
-              for (let j = i + 1; j < lines.length && j < i + 5; j++) {
-                const infoLine = lines[j].trim();
-                if (infoLine.startsWith('- **Name:**')) {
-                  clientName = infoLine.replace('- **Name:**', '').trim();
-                }
-                if (infoLine.startsWith('- **Contact:**')) {
-                  clientPhone = infoLine.replace('- **Contact:**', '').trim();
-                }
-                if (infoLine.startsWith('- **Address:**')) {
-                  clientAddress = infoLine.replace('- **Address:**', '').trim();
-                }
+            if (!line) continue;
+
+            // Check for section headers (both ### and ** style)
+            if (line.startsWith('### ') || line.startsWith('**')) {
+              const sectionMatch = line.match(/(?:###\s*|\*\*)(.*?)(?:\*\*)?$/);
+              if (sectionMatch) {
+                currentSection = sectionMatch[1].trim();
+                continue;
               }
             }
-            
-            // Extract job description
-            if (line === '### Job Description') {
-              isInJobDescription = true;
-              continue;
-            } else if (line.startsWith('### ')) {
-              isInJobDescription = false;
-            }
-            
-            if (isInJobDescription && line && !line.startsWith('### ')) {
-              jobDescription += line + '\n';
-            }
-          }
-        }
 
-        // Extract title from description or use existing title
-        let title = data.title || '';
-        if (data.description && !title) {
-          const lines = data.description.split('\n');
-          for (const line of lines) {
-            if (line.startsWith('### Job Title/Name')) {
-              const nextLine = lines[lines.indexOf(line) + 1];
-              if (nextLine) {
-                title = nextLine.trim();
+            switch (currentSection) {
+              case 'Job Title':
+                if (!title) {
+                  title = line.replace(/^[-*•]/, '').trim();
+                }
                 break;
-              }
+              case 'Client Details':
+                // Clean up the line from markdown and special characters
+                const cleanLine = line
+                  .replace(/^\s*[-*•]\s*/, '')     // Remove list markers
+                  .replace(/\*\*/g, '')            // Remove bold markers
+                  .trim();
+
+                // Check if line contains a label
+                const labelMatch = cleanLine.match(/^(Name|Client Name|Phone|Contact|Email|Address):\s*(.+)/i);
+                if (labelMatch) {
+                  const [, label, value] = labelMatch;
+                  const normalizedLabel = label.toLowerCase();
+                  if (normalizedLabel.includes('name') && !clientName) {
+                    clientName = value.trim();
+                  } else if ((normalizedLabel.includes('phone') || normalizedLabel.includes('contact')) && !clientPhone && value.includes('07')) {
+                    clientPhone = value.trim();
+                  } else if (normalizedLabel.includes('address') && !clientAddress) {
+                    clientAddress = value.trim();
+                  }
+                }
+                break;
+              case 'Job Description':
+                jobDescription += line + '\n';
+                break;
             }
           }
         }
 
+        // Use extracted data or fallback to root level data
         return {
           id: doc.id,
-          title: title || `Job ${doc.id.slice(0, 8)}`,
-          clientName: clientName || 'No Client',
-          clientAddress: clientAddress || 'No Address',
-          clientPhone: clientPhone || 'No Phone',
+          title: title || data.title || 'Untitled Job',
+          clientName: clientName || data.clientName || 'No Client',
+          clientAddress: clientAddress || data.clientAddress || 'No Address',
+          clientPhone: clientPhone || data.clientPhone || 'No Phone',
           status: data.status || 'new',
-          startTime: data.expectedCompletionDate || '',
-          createdAt: data.createdAt,
-          description: jobDescription.trim() || '',
+          startTime: data.startTime || null,
+          createdAt: data.createdAt || null,
+          updatedAt: data.updatedAt || null,
+          description: jobDescription.trim() || data.description || '',
         } as Job;
       });
       
@@ -190,165 +193,144 @@ export default function JobsPage() {
     return () => unsubscribe();
   }, []);
 
+  const columns = [
+    {
+      id: "expander",
+      header: () => null,
+      cell: ({ row }: { row: Row<Job> }) => {
+        if (!row.original.description) return null;
+        return (
+          <Button
+            className="h-7 w-7 p-0 shadow-none text-muted-foreground"
+            onClick={(e) => {
+              e.stopPropagation();
+              row.toggleExpanded();
+            }}
+            aria-expanded={row.getIsExpanded()}
+            aria-label={row.getIsExpanded() ? "Hide details" : "Show details"}
+          >
+            <ChevronRight
+              className={cn(
+                "h-4 w-4 transition-transform",
+                row.getIsExpanded() && "rotate-90"
+              )}
+            />
+          </Button>
+        );
+      },
+    },
+    {
+      header: "Job Title",
+      accessorKey: "title",
+      cell: ({ row }: { row: Row<Job> }) => (
+        <div className="font-medium">{row.original.title || 'Untitled Job'}</div>
+      ),
+    },
+    {
+      header: "Client",
+      accessorKey: "clientName",
+      cell: ({ row }: { row: Row<Job> }) => (
+        <div>
+          <div className="font-medium">{row.original.clientName || 'No Client'}</div>
+          <div className="text-sm text-gray-500">{row.original.clientAddress || 'No Address'}</div>
+        </div>
+      ),
+    },
+    {
+      header: "Phone",
+      accessorKey: "clientPhone",
+      cell: ({ row }: { row: Row<Job> }) => (
+        <div className="font-medium">{row.original.clientPhone || 'No Phone'}</div>
+      ),
+    },
+    {
+      header: "Status",
+      accessorKey: "status",
+      cell: ({ row }: { row: Row<Job> }) => (
+        <div className="flex items-center">
+          <span className={cn(
+            "rounded-full w-2 h-2 mr-2",
+            row.original.status === "completed" && "bg-green-500",
+            row.original.status === "in-progress" && "bg-yellow-500",
+            row.original.status === "pending" && "bg-gray-500"
+          )} />
+          <span className="capitalize">{row.original.status || 'pending'}</span>
+        </div>
+      ),
+    },
+    {
+      header: "Start Time",
+      accessorKey: "startTime",
+      cell: ({ row }: { row: Row<Job> }) => {
+        const startTime = row.original.startTime;
+        if (!startTime) return <div>Not set</div>;
+        
+        // If startTime is a Firestore Timestamp
+        if (startTime instanceof Timestamp) {
+          return <div>{startTime.toDate().toLocaleDateString()}</div>;
+        }
+        
+        // If startTime is a Date
+        if (startTime instanceof Date) {
+          return <div>{startTime.toLocaleDateString()}</div>;
+        }
+        
+        // If startTime is a string
+        return <div>{startTime}</div>;
+      },
+    },
+    {
+      header: "Created",
+      accessorKey: "createdAt",
+      cell: ({ row }: { row: Row<Job> }) => {
+        const createdAt = row.original.createdAt;
+        if (!createdAt) return <div>N/A</div>;
+        
+        if (createdAt instanceof Timestamp) {
+          return <div>{createdAt.toDate().toLocaleDateString()}</div>;
+        }
+        
+        return <div>N/A</div>;
+      },
+    },
+    ...(user?.email?.includes("admin") ? [{
+      id: "actions",
+      header: () => <span className="sr-only">Actions</span>,
+      cell: ({ row }: { row: Row<Job> }) => {
+        const handleDelete = async (e: React.MouseEvent) => {
+          e.stopPropagation();
+          if (!confirm("Are you sure you want to delete this job?")) return;
+          
+          try {
+            await deleteDoc(doc(db, "jobs", row.original.id));
+            window.location.reload();
+          } catch (err) {
+            console.error("Error deleting job:", err);
+            alert("Failed to delete job");
+          }
+        };
+        
+        return (
+          <div className="flex justify-end">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-8 w-8 p-0 text-red-600 hover:text-red-900 hover:bg-red-50"
+              onClick={handleDelete}
+              title="Delete job"
+            >
+              <Trash2 className="h-4 w-4" />
+              <span className="sr-only">Delete job</span>
+            </Button>
+          </div>
+        );
+      },
+    }] : []),
+  ];
+
   const table = useReactTable({
     data: jobs,
-    columns: [
-      {
-        id: "expander",
-        header: () => null,
-        cell: ({ row }: { row: Row<Job> }) => {
-          // Only show expander if there's a description
-          if (!row.original.description) return null;
-          
-          return (
-            <Button
-              className="h-7 w-7 p-0 shadow-none text-muted-foreground"
-              onClick={(e) => {
-                e.stopPropagation();
-                row.toggleExpanded();
-              }}
-              aria-expanded={row.getIsExpanded()}
-              aria-label={row.getIsExpanded()
-                ? `Collapse details for ${row.original.title}`
-                : `Expand details for ${row.original.title}`}
-              variant="ghost"
-            >
-              {row.getIsExpanded() ? (
-                <ChevronUp className="opacity-60" size={16} strokeWidth={2} aria-hidden="true" />
-              ) : (
-                <ChevronDown className="opacity-60" size={16} strokeWidth={2} aria-hidden="true" />
-              )}
-            </Button>
-          );
-        },
-      },
-      {
-        header: "Job Title",
-        accessorKey: "title",
-        cell: ({ row }: { row: Row<Job> }) => (
-          <div className="font-medium">
-            {row.original.title || `Job ${row.original.id.slice(0, 8)}`}
-          </div>
-        ),
-      },
-      {
-        header: ({ column }: { column: Column<Job> }) => (
-          <button
-            onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
-            className="flex items-center space-x-1 group hover:text-gray-900"
-          >
-            <span>Client</span>
-            <ArrowUpDown className="w-4 h-4 opacity-0 group-hover:opacity-100" />
-          </button>
-        ),
-        accessorKey: "clientName",
-        cell: ({ row }: { row: Row<Job> }) => (
-          <div>
-            <div className="font-medium">{row.original.clientName || 'No Client'}</div>
-            <div className="text-sm text-gray-500">{row.original.clientAddress || 'No Address'}</div>
-          </div>
-        ),
-      },
-      {
-        header: "Phone",
-        accessorKey: "clientPhone",
-        cell: ({ row }: { row: Row<Job> }) => (
-          <div className="font-medium">
-            {row.original.clientPhone || 'No Phone'}
-          </div>
-        ),
-      },
-      {
-        header: ({ column }: { column: Column<Job> }) => (
-          <button
-            onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
-            className="flex items-center space-x-1 group hover:text-gray-900"
-          >
-            <span>Status</span>
-            <ArrowUpDown className="w-4 h-4 opacity-0 group-hover:opacity-100" />
-          </button>
-        ),
-        accessorKey: "status",
-        cell: ({ row }: { row: Row<Job> }) => {
-          const status = row.getValue("status") as string;
-          return (
-            <span className={`px-2 py-1 rounded-full text-xs font-semibold ${getStatusColor(status)}`}>
-              {status || 'new'}
-            </span>
-          );
-        },
-      },
-      {
-        header: ({ column }: { column: Column<Job> }) => (
-          <button
-            onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
-            className="flex items-center space-x-1 group hover:text-gray-900"
-          >
-            <span>Start Time</span>
-            <ArrowUpDown className="w-4 h-4 opacity-0 group-hover:opacity-100" />
-          </button>
-        ),
-        accessorKey: "startTime",
-        cell: ({ row }: { row: Row<Job> }) => (
-          <div className="text-gray-500">
-            {row.original.startTime ? new Date(row.original.startTime).toLocaleString() : 'Not set'}
-          </div>
-        ),
-      },
-      {
-        header: ({ column }: { column: Column<Job> }) => (
-          <button
-            onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
-            className="flex items-center space-x-1 group hover:text-gray-900"
-          >
-            <span>Created</span>
-            <ArrowUpDown className="w-4 h-4 opacity-0 group-hover:opacity-100" />
-          </button>
-        ),
-        accessorKey: "createdAt",
-        cell: ({ row }: { row: Row<Job> }) => (
-          <div className="text-gray-500">
-            {typeof row.original.createdAt === 'object' && row.original.createdAt?.toDate ? 
-              row.original.createdAt.toDate().toLocaleString() : 
-              'N/A'}
-          </div>
-        ),
-      },
-      // Only add delete column if user is admin
-      ...(isAdmin ? [{
-        id: "actions",
-        header: () => <span className="sr-only">Actions</span>,
-        cell: ({ row }: { row: Row<Job> }) => {
-          const handleDelete = async (e: React.MouseEvent) => {
-            e.stopPropagation(); // Prevent row click event
-            if (window.confirm('Are you sure you want to delete this job?')) {
-              try {
-                await deleteDoc(doc(db, "jobs", row.original.id));
-              } catch (error) {
-                console.error("Error deleting job:", error);
-                alert("Failed to delete job");
-              }
-            }
-          };
-
-          return (
-            <div className="flex justify-end pr-4">
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-8 w-8 p-0 text-red-600 hover:text-red-900 hover:bg-red-50"
-                onClick={handleDelete}
-                title="Delete job"
-              >
-                <Trash2 className="h-4 w-4" />
-                <span className="sr-only">Delete job</span>
-              </Button>
-            </div>
-          );
-        },
-      }] : []),
-    ],
-    getRowCanExpand: (row) => Boolean(row.original.description),
+    columns: columns,
     getCoreRowModel: getCoreRowModel(),
     getExpandedRowModel: getExpandedRowModel(),
   });

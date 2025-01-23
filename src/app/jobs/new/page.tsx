@@ -4,9 +4,9 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { collection, addDoc, serverTimestamp, getDocs } from "firebase/firestore";
-import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
+import { ref as storageRef, uploadBytes, getDownloadURL } from "firebase/storage";
 import { db, storage } from "@/lib/firebase/firebase";
-import { Wand2, Upload, LoaderPinwheel } from "lucide-react";
+import { Upload, LoaderPinwheel } from "lucide-react";
 import { enhanceJobDescription } from "@/lib/utils/openai";
 
 interface JobFormData {
@@ -15,8 +15,10 @@ interface JobFormData {
   status: string;
   assignedTo: string;
   startTime: string;
-  priority: string;
-  attachments: string[];
+  clientName: string;
+  clientPhone: string;
+  clientAddress: string;
+  attachments: File[];
 }
 
 interface User {
@@ -30,7 +32,9 @@ const initialFormData: JobFormData = {
   status: "new",
   assignedTo: "",
   startTime: "",
-  priority: "medium",
+  clientName: "",
+  clientPhone: "",
+  clientAddress: "",
   attachments: []
 };
 
@@ -38,8 +42,6 @@ export default function NewJobPage() {
   const [formData, setFormData] = useState<JobFormData>(initialFormData);
   const [error, setError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isEnhancing, setIsEnhancing] = useState(false);
-  const [isFormatted, setIsFormatted] = useState(false);
   const [users, setUsers] = useState<User[]>([]);
   const [files, setFiles] = useState<File[]>([]);
   const router = useRouter();
@@ -60,61 +62,142 @@ export default function NewJobPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError("");
+    if (!formData.description.trim()) {
+      setError("Please enter job details first");
+      return;
+    }
+
     setIsSubmitting(true);
+    setError("");
 
     try {
-      // First, format the description
+      // First, upload any attachments
+      const uploadedUrls: string[] = [];
+      
+      if (formData.attachments.length > 0) {
+        for (const file of formData.attachments) {
+          const fileRef = storageRef(storage, `jobs/${Date.now()}-${file.name}`);
+          const snapshot = await uploadBytes(fileRef, file);
+          const downloadUrl = await getDownloadURL(snapshot.ref);
+          uploadedUrls.push(downloadUrl);
+        }
+      }
+
+      // Format the description using OpenAI
       const enhancedDescription = await enhanceJobDescription(formData.description);
-      if (enhancedDescription) {
-        // Extract the title from the enhanced description
-        const lines = enhancedDescription.split('\n');
-        let title = '';
-        
-        // Look for the Job Title line
-        for (const line of lines) {
-          if (line.toLowerCase().includes('job title') || line.toLowerCase().includes('job name')) {
-            title = line.split(':')[1]?.trim() || '';
-            break;
+      if (!enhancedDescription) {
+        throw new Error("Failed to enhance job description");
+      }
+
+      console.log("Enhanced description:", enhancedDescription);
+
+      // Extract information from enhanced description
+      const lines = enhancedDescription.split('\n');
+      let jobTitle = '';
+      let clientName = '';
+      let clientPhone = '';
+      let clientAddress = '';
+      let currentSection = '';
+      let jobDescription = '';
+      let isInJobDescription = false;
+      
+      for (const line of lines) {
+        const trimmedLine = line.trim();
+        if (!trimmedLine) continue;
+
+        console.log("Processing line:", trimmedLine);
+        console.log("Current section:", currentSection);
+
+        // Check for section headers
+        if (trimmedLine.startsWith('### ')) {
+          currentSection = trimmedLine.replace(/^###\s*/, '').replace(/:$/, '').trim();
+          console.log("Found section:", currentSection);
+          
+          // Set flag for job description section
+          if (currentSection === 'Job Description') {
+            isInJobDescription = true;
+          } else {
+            isInJobDescription = false;
+          }
+          continue;
+        }
+
+        // Extract job title
+        if ((currentSection === 'Job Title' || currentSection === 'Job Title/Name') && !jobTitle) {
+          jobTitle = trimmedLine;
+          console.log("Found job title:", jobTitle);
+          continue;
+        }
+
+        // Collect job description
+        if (isInJobDescription) {
+          jobDescription += trimmedLine + '\n';
+          console.log("Adding to job description:", trimmedLine);
+          continue;
+        }
+
+        // Extract client details
+        if (currentSection === 'Client Details') {
+          // Clean up the line from markdown and special characters
+          const cleanLine = trimmedLine
+            .replace(/^\s*[-*•]\s*/, '')  // Remove list markers
+            .replace(/\*\*/g, '')         // Remove bold markers
+            .trim();
+
+          console.log("Processing client detail line:", cleanLine);
+
+          // Try to match "Name: value" format
+          const labelMatch = cleanLine.match(/^([^:]+):\s*(.+)$/);
+          if (labelMatch) {
+            const [, label, value] = labelMatch;
+            const normalizedLabel = label.toLowerCase().trim();
+            
+            if (normalizedLabel.includes('name')) {
+              clientName = value.trim();
+              console.log("Found client name:", clientName);
+            } else if (normalizedLabel.includes('contact') || normalizedLabel.includes('phone')) {
+              // Extract phone number - look for UK mobile format
+              const phoneMatch = value.match(/\b(07\d{3}\s*\d{3}\s*\d{3})\b/);
+              if (phoneMatch) {
+                clientPhone = phoneMatch[1].replace(/\s+/g, ' ').trim();
+                console.log("Found client phone:", clientPhone);
+              }
+            } else if (normalizedLabel.includes('address')) {
+              clientAddress = value.trim();
+              console.log("Found client address:", clientAddress);
+            }
           }
         }
-
-        // If no title was found in the formatted text, generate a simple one from the first line
-        if (!title) {
-          title = lines[0].replace(/^[-*•]/, '').trim();
-        }
-
-        // Ensure we have a title
-        if (!title) {
-          title = 'Job ' + new Date().toISOString();
-        }
-
-        // Upload files
-        const uploadedUrls = await Promise.all(
-          files.map(async (file) => {
-            const storageRef = ref(storage, `jobs/${Date.now()}-${file.name}`);
-            await uploadBytes(storageRef, file);
-            return getDownloadURL(storageRef);
-          })
-        );
-
-        // Create job with enhanced description and title
-        const jobsRef = collection(db, "jobs");
-        const timestamp = serverTimestamp();
-        await addDoc(jobsRef, {
-          ...formData,
-          title,
-          description: enhancedDescription,
-          attachments: uploadedUrls,
-          createdAt: timestamp,
-          updatedAt: timestamp,
-        });
-        
-        router.push("/jobs");
       }
-    } catch (err: any) {
-      setError(err.message || "Failed to create job. Please try again.");
-      console.error("Job creation error:", err);
+
+      console.log("Final extracted data:", {
+        jobTitle,
+        clientName,
+        clientPhone,
+        clientAddress,
+        jobDescription
+      });
+
+      // Create the job document
+      const jobRef = await addDoc(collection(db, "jobs"), {
+        title: jobTitle || "Untitled Job",
+        description: enhancedDescription, // Store the full enhanced description
+        jobDescription: jobDescription.trim(), // Store the extracted job description separately
+        status: "new",
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+        startTime: formData.startTime || null,
+        assignedTo: formData.assignedTo || null,
+        clientName: clientName || 'No Client',
+        clientPhone: clientPhone || 'No Phone',
+        clientAddress: clientAddress || 'No Address',
+        attachments: uploadedUrls,
+      });
+
+      router.push(`/jobs/${jobRef.id}`);
+    } catch (err) {
+      console.error("Error creating job:", err);
+      setError(err instanceof Error ? err.message : "Failed to create job");
     } finally {
       setIsSubmitting(false);
     }
@@ -124,62 +207,19 @@ export default function NewJobPage() {
     e: React.ChangeEvent<HTMLTextAreaElement | HTMLInputElement | HTMLSelectElement>
   ) => {
     const { name, value } = e.target;
-    setFormData((prev) => ({ ...prev, [name]: value }));
+    setFormData(prev => ({ ...prev, [name]: value }));
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files) {
-      setFiles(Array.from(e.target.files));
-    }
-  };
+    const files = e.target.files;
+    if (!files) return;
 
-  const handleEnhanceDescription = async () => {
-    if (!formData.description.trim()) {
-      setError("Please enter job details first");
-      return;
-    }
-
-    setIsEnhancing(true);
-    setError("");
-
-    try {
-      const enhancedDescription = await enhanceJobDescription(formData.description);
-      if (enhancedDescription) {
-        // Extract the title from the enhanced description
-        const lines = enhancedDescription.split('\n');
-        let title = '';
-        
-        // Look for the Job Title line
-        for (const line of lines) {
-          if (line.toLowerCase().includes('job title') || line.toLowerCase().includes('job name')) {
-            title = line.split(':')[1]?.trim() || '';
-            break;
-          }
-        }
-
-        // If no title was found in the formatted text, generate a simple one from the first line
-        if (!title) {
-          title = lines[0].replace(/^[-*•]/, '').trim();
-        }
-
-        // Ensure we have a title
-        if (!title) {
-          title = 'Job ' + new Date().toISOString();
-        }
-
-        setFormData(prev => ({
-          ...prev,
-          title,
-          description: enhancedDescription
-        }));
-        setIsFormatted(true);
-      }
-    } catch (err: any) {
-      setError(err.message || "Failed to format job details. Please try again.");
-      console.error("Enhancement error:", err);
-    } finally {
-      setIsEnhancing(false);
-    }
+    // Convert FileList to Array and update form data
+    const fileArray = Array.from(files);
+    setFormData(prev => ({
+      ...prev,
+      attachments: fileArray
+    }));
   };
 
   return (
@@ -198,7 +238,7 @@ export default function NewJobPage() {
                 placeholder="Insert data from email"
                 value={formData.description}
                 onChange={handleChange}
-                className="w-full p-4 text-gray-900  border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500"
+                className="w-full p-4 text-gray-900 border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500"
               />
             </div>
 
@@ -236,67 +276,41 @@ export default function NewJobPage() {
                   className="w-full p-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 text-black"
                 />
               </div>
-
-              <div>
-                <label htmlFor="priority" className="block text-sm font-medium text-gray-700 mb-1">
-                  Priority
-                </label>
-                <select
-                  name="priority"
-                  id="priority"
-                  value={formData.priority}
-                  onChange={handleChange}
-                  className="w-full p-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 text-black"
-                >
-                  <option value="low">Low</option>
-                  <option value="medium">Medium</option>
-                  <option value="high">High</option>
-                  <option value="urgent">Urgent</option>
-                </select>
-              </div>
-
-              <div>
-                <label htmlFor="files" className="block text-sm font-medium text-gray-700 mb-1">
-                  Attachments
-                </label>
-                <input
-                  type="file"
-                  id="files"
-                  multiple
-                  onChange={handleFileChange}
-                  className="w-full p-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500"
-                />
-                {files.length > 0 && (
-                  <div className="mt-2 text-sm text-gray-500">
-                    {files.length} file(s) selected
-                  </div>
-                )}
-              </div>
             </div>
-          </div>
-          
-          {error && (
-            <div className="mt-2 text-red-600 text-sm text-center">{error}</div>
-          )}
 
-          <div className="mt-6 flex justify-end gap-4">
-            <Button
-              type="submit"
-              disabled={isSubmitting || !formData.description.trim()}
-              className="px-6 py-3 bg-green-600 text-white hover:bg-green-700 rounded-lg flex items-center gap-2"
-            >
-              {isSubmitting ? (
-                <>
-                  <LoaderPinwheel className="w-5 h-5 animate-spin" />
-                  Processing...
-                </>
-              ) : (
-                <>
-                  <Upload className="w-5 h-5" />
-                  Create Job
-                </>
-              )}
-            </Button>
+            <div>
+              <label htmlFor="attachments" className="block text-sm font-medium text-gray-700 mb-1">
+                Attachments
+              </label>
+              <input
+                type="file"
+                id="attachments"
+                multiple
+                onChange={handleFileChange}
+                className="w-full p-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500"
+              />
+            </div>
+
+            {error && (
+              <div className="text-red-500 text-sm mt-2">
+                {error}
+              </div>
+            )}
+
+            <div className="flex justify-end">
+              <Button
+                type="submit"
+                disabled={isSubmitting || !formData.description.trim()}
+                className={`flex items-center space-x-2 ${isSubmitting ? 'opacity-50 cursor-not-allowed' : ''}`}
+              >
+                {isSubmitting ? (
+                  <LoaderPinwheel className="animate-spin h-4 w-4" />
+                ) : (
+                  <Upload className="h-4 w-4" />
+                )}
+                <span>Create Job</span>
+              </Button>
+            </div>
           </div>
         </div>
       </form>

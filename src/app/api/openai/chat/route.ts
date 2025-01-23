@@ -41,11 +41,45 @@ export async function POST(req: Request) {
         Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
       },
       body: JSON.stringify({
-        model: 'gpt-3.5-turbo',
+        model: 'gpt-4o-mini',
         messages: [
           {
             role: 'system',
-            content: 'You are a job card formatting assistant. When given text, format it into a clear and structured job card format. Extract and organize key information such as job title, company, location, requirements, responsibilities, and any other relevant details. Make the output clean and easy to read.'
+            content: `You are a job card formatting assistant. When given text, carefully extract and format the following information:
+
+1. Client Information (under "### Client Details"):
+   - Full Name (first line)
+   - Phone Number (exactly as it appears in the text, preserve ALL digits and formatting)
+   - Complete Address (preserve exactly as written)
+
+IMPORTANT: For phone numbers:
+- Keep ALL digits, spaces, and special characters
+- Do not modify or reformat phone numbers
+- Place the phone number on its own line
+- If multiple phone numbers exist, include all of them
+
+Format the output in a clear, structured markdown format with these exact section headers:
+### Job Title/Name
+[Extracted or generated title]
+
+### Client Details
+[Client Name]
+[Phone Number - EXACTLY as it appears in original text]
+[Complete Address]
+
+### Job Description
+[Detailed description with requirements]
+
+### Job Timeline/Deadline
+[Any timeline information found]
+
+### Required Tools/Materials
+[List of required tools/materials]
+
+### Instructions on How to Complete the Job
+[Step-by-step instructions if available]
+
+Remember: Preserve ALL contact information EXACTLY as provided in the original text. Do not modify phone numbers or addresses.`
           },
           {
             role: 'user',
