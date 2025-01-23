@@ -265,18 +265,37 @@ export default function JobsPage() {
         const startTime = row.original.startTime;
         if (!startTime) return <div>Not set</div>;
         
+        const formatDate = (date: Date) => {
+          const options: Intl.DateTimeFormatOptions = {
+            day: '2-digit',
+            month: '2-digit',
+            year: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: false
+          };
+          return date.toLocaleString('en-GB', options).replace(',', '');
+        };
+        
         // If startTime is a Firestore Timestamp
         if (startTime instanceof Timestamp) {
-          return <div>{startTime.toDate().toLocaleDateString()}</div>;
+          return <div>{formatDate(startTime.toDate())}</div>;
         }
         
         // If startTime is a Date
         if (startTime instanceof Date) {
-          return <div>{startTime.toLocaleDateString()}</div>;
+          return <div>{formatDate(startTime)}</div>;
         }
         
-        // If startTime is a string
-        return <div>{startTime}</div>;
+        // If startTime is a string (assuming ISO format)
+        if (typeof startTime === 'string') {
+          const date = new Date(startTime);
+          if (!isNaN(date.getTime())) {
+            return <div>{formatDate(date)}</div>;
+          }
+        }
+        
+        return <div>Invalid date</div>;
       },
     },
     {
