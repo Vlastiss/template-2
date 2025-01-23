@@ -6,7 +6,7 @@ import { db } from "@/lib/firebase/firebase";
 import { useAuth } from "@/lib/hooks/useAuth";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
-import { formatDate } from "@/lib/utils";
+import { ArrowUpDown } from "lucide-react";
 
 interface Job {
   id: string;
@@ -14,13 +14,18 @@ interface Job {
   clientName: string;
   priority: string;
   status: string;
-  expectedCompletionDate: string;
+  startTime: string;
   createdAt: any;
 }
+
+type SortField = 'clientName' | 'status' | 'startTime' | 'createdAt';
+type SortDirection = 'asc' | 'desc';
 
 export default function JobsPage() {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [loading, setLoading] = useState(true);
+  const [sortField, setSortField] = useState<SortField>('createdAt');
+  const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
   const { user } = useAuth();
 
   useEffect(() => {
@@ -38,6 +43,48 @@ export default function JobsPage() {
 
     return () => unsubscribe();
   }, []);
+
+  const handleSort = (field: SortField) => {
+    if (field === sortField) {
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortField(field);
+      setSortDirection('asc');
+    }
+  };
+
+  const sortedJobs = [...jobs].sort((a, b) => {
+    let comparison = 0;
+    
+    switch (sortField) {
+      case 'clientName':
+        comparison = (a.clientName || '').localeCompare(b.clientName || '');
+        break;
+      case 'status':
+        comparison = (a.status || '').localeCompare(b.status || '');
+        break;
+      case 'startTime':
+        comparison = (a.startTime || '').localeCompare(b.startTime || '');
+        break;
+      case 'createdAt':
+        const dateA = a.createdAt?.toDate?.() || new Date(0);
+        const dateB = b.createdAt?.toDate?.() || new Date(0);
+        comparison = dateA.getTime() - dateB.getTime();
+        break;
+    }
+
+    return sortDirection === 'asc' ? comparison : -comparison;
+  });
+
+  const SortButton = ({ field, label }: { field: SortField; label: string }) => (
+    <button
+      onClick={() => handleSort(field)}
+      className="flex items-center space-x-1 group"
+    >
+      <span>{label}</span>
+      <ArrowUpDown className="w-4 h-4 opacity-0 group-hover:opacity-100" />
+    </button>
+  );
 
   const getPriorityColor = (priority: string | undefined) => {
     if (!priority) return 'bg-gray-100 text-gray-800'; // Default color for undefined priority
@@ -99,25 +146,29 @@ export default function JobsPage() {
                   Job Title
                 </th>
                 <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Client
+                  <SortButton field="clientName" label="Client" />
                 </th>
                 <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Priority
                 </th>
                 <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Status
+                  <SortButton field="status" label="Status" />
                 </th>
                 <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Due Date
+                  <SortButton field="startTime" label="Start Time" />
                 </th>
                 <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Created
+                  <SortButton field="createdAt" label="Created" />
                 </th>
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
-              {jobs.map((job) => (
-                <tr key={job.id} className="hover:bg-gray-50">
+              {sortedJobs.map((job) => (
+                <tr 
+                  key={job.id} 
+                  className="hover:bg-gray-50 cursor-pointer"
+                  onClick={() => window.location.href = `/jobs/${job.id}`}
+                >
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="text-sm font-medium text-gray-900">
                       {job.title || `Job ${job.id.slice(0, 8)}`}
@@ -137,11 +188,11 @@ export default function JobsPage() {
                     </span>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {job.expectedCompletionDate ? formatDate(job.expectedCompletionDate) : 'Not set'}
+                    {job.startTime ? new Date(job.startTime).toLocaleString() : 'Not set'}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                     {typeof job.createdAt === 'object' && job.createdAt?.toDate ? 
-                      job.createdAt.toDate().toLocaleDateString() : 
+                      job.createdAt.toDate().toLocaleString() : 
                       'N/A'}
                   </td>
                 </tr>
