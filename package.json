@@ -12,8 +12,9 @@
     "@ai-sdk/anthropic": "^0.0.48",
     "@ai-sdk/openai": "^0.0.54",
     "@deepgram/sdk": "^3.6.0",
-    "@shadcn/ui": "^0.0.4",
+    "@tanstack/react-table": "^8.20.6",
     "ai": "^2.2.35",
+    "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "date-fns": "^3.6.0",
     "firebase": "^10.13.0",
@@ -27,9 +28,11 @@
     "replicate": "^0.32.0",
     "shadcn-ui": "^0.9.4",
     "tailwind-merge": "^2.6.0",
+    "tailwindcss-animate": "^1.0.7",
     "zod": "^3.22.4"
   },
   "devDependencies": {
+    "@shadcn/ui": "^0.0.4",
     "@types/node": "^20",
     "@types/react": "^18",
     "@types/react-dom": "^18",
