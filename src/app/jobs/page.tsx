@@ -312,7 +312,7 @@ export default function JobsPage() {
         return <div>N/A</div>;
       },
     },
-    ...(user?.email?.includes("admin") ? [{
+    {
       id: "actions",
       header: () => <span className="sr-only">Actions</span>,
       cell: ({ row }: { row: Row<Job> }) => {
@@ -322,7 +322,6 @@ export default function JobsPage() {
           
           try {
             await deleteDoc(doc(db, "jobs", row.original.id));
-            window.location.reload();
           } catch (err) {
             console.error("Error deleting job:", err);
             alert("Failed to delete job");
@@ -344,7 +343,7 @@ export default function JobsPage() {
           </div>
         );
       },
-    }] : []),
+    },
   ];
 
   const table = useReactTable({
