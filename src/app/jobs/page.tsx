@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment, useEffect, useState } from "react";
-import { collection, query, orderBy, onSnapshot, deleteDoc, doc, getDoc, Timestamp } from "firebase/firestore";
+import { collection, query, orderBy, onSnapshot, deleteDoc, doc, getDoc, Timestamp, updateDoc, serverTimestamp } from "firebase/firestore";
 import { db } from "@/lib/firebase/firebase";
 import { useAuth } from "@/lib/hooks/useAuth";
 import Link from "next/link";
@@ -32,11 +32,13 @@ interface Job {
   clientName: string;
   clientAddress: string;
   clientPhone: string;
-  status: 'pending' | 'in-progress' | 'completed';
+  status: 'new' | 'pending' | 'in-progress' | 'completed';
   startTime: Timestamp | Date | string | null;
   createdAt: Timestamp | null;
   updatedAt: Timestamp | null;
   description?: string;
+  assignedTo?: string;
+  feedback?: string;
 }
 
 const getPriorityColor = (priority: string | undefined) => {
@@ -183,15 +185,22 @@ export default function JobsPage() {
           createdAt: data.createdAt || null,
           updatedAt: data.updatedAt || null,
           description: jobDescription.trim() || data.description || '',
+          assignedTo: data.assignedTo || '',
+          feedback: data.feedback || '',
         } as Job;
       });
+
+      // Filter jobs based on user role
+      const filteredJobs = isAdmin 
+        ? jobsData // Admin sees all jobs
+        : jobsData.filter(job => job.assignedTo === user?.email); // Employees see only their assigned jobs
       
-      setJobs(jobsData);
+      setJobs(filteredJobs);
       setLoading(false);
     });
 
     return () => unsubscribe();
-  }, []);
+  }, [isAdmin, user?.email]);
 
   const columns = [
     {
@@ -327,21 +336,86 @@ export default function JobsPage() {
             alert("Failed to delete job");
           }
         };
-        
-        return (
-          <div className="flex justify-end">
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-8 w-8 p-0 text-red-600 hover:text-red-900 hover:bg-red-50"
-              onClick={handleDelete}
-              title="Delete job"
-            >
-              <Trash2 className="h-4 w-4" />
-              <span className="sr-only">Delete job</span>
-            </Button>
-          </div>
-        );
+
+        const handleStatusUpdate = async (e: React.MouseEvent, newStatus: string) => {
+          e.stopPropagation();
+          try {
+            const jobRef = doc(db, "jobs", row.original.id);
+            
+            if (newStatus === 'completed') {
+              const feedback = prompt('Please provide feedback about the job completion:');
+              if (feedback === null) return; // User cancelled the prompt
+              
+              await updateDoc(jobRef, {
+                status: newStatus,
+                updatedAt: serverTimestamp(),
+                feedback: feedback
+              });
+            } else {
+              await updateDoc(jobRef, {
+                status: newStatus,
+                updatedAt: serverTimestamp()
+              });
+            }
+          } catch (err) {
+            console.error("Error updating job status:", err);
+            alert("Failed to update job status");
+          }
+        };
+
+        // Show different actions based on user role and job status
+        if (isAdmin) {
+          return (
+            <div className="flex justify-end gap-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-8 w-8 p-0 text-red-600 hover:text-red-900 hover:bg-red-50"
+                onClick={handleDelete}
+                title="Delete job"
+              >
+                <Trash2 className="h-4 w-4" />
+                <span className="sr-only">Delete job</span>
+              </Button>
+            </div>
+          );
+        }
+
+        // Employee actions
+        if (user && row.original.assignedTo === user.email) {
+          switch (row.original.status) {
+            case 'new':
+              return (
+                <div className="flex justify-end">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="text-blue-600 hover:text-blue-900"
+                    onClick={(e) => handleStatusUpdate(e, 'in-progress')}
+                  >
+                    Accept Job
+                  </Button>
+                </div>
+              );
+            case 'in-progress':
+              return (
+                <div className="flex justify-end">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="text-green-600 hover:text-green-900"
+                    onClick={(e) => handleStatusUpdate(e, 'completed')}
+                  >
+                    Complete Job
+                  </Button>
+                </div>
+              );
+            default:
+              return null;
+          }
+        }
+
+        return null;
       },
     },
   ];
@@ -364,7 +438,9 @@ export default function JobsPage() {
   return (
     <div className="py-8">
       <div className="flex justify-between items-center mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">Jobs</h1>
+        <h1 className="text-2xl font-bold text-gray-900">
+          {isAdmin ? "All Jobs" : "My Assigned Jobs"}
+        </h1>
         {isAdmin && (
           <Link href="/jobs/new">
             <Button>Create New Job</Button>
@@ -413,14 +489,30 @@ export default function JobsPage() {
                   {row.getIsExpanded() && (
                     <TableRow>
                       <TableCell colSpan={row.getVisibleCells().length}>
-                        <div className="flex items-start py-2 text-primary/80">
-                          <span
-                            className="me-3 mt-0.5 flex w-7 shrink-0 justify-center"
-                            aria-hidden="true"
-                          >
-                            <Info className="opacity-60" size={16} strokeWidth={2} />
-                          </span>
-                          <p className="text-sm">{row.original.description}</p>
+                        <div className="flex flex-col gap-4 py-2">
+                          <div className="flex items-start text-primary/80">
+                            <span
+                              className="me-3 mt-0.5 flex w-7 shrink-0 justify-center"
+                              aria-hidden="true"
+                            >
+                              <Info className="opacity-60" size={16} strokeWidth={2} />
+                            </span>
+                            <p className="text-sm">{row.original.description}</p>
+                          </div>
+                          {row.original.feedback && row.original.status === 'completed' && (
+                            <div className="flex items-start text-primary/80 mt-2">
+                              <span
+                                className="me-3 mt-0.5 flex w-7 shrink-0 justify-center"
+                                aria-hidden="true"
+                              >
+                                <Info className="opacity-60" size={16} strokeWidth={2} />
+                              </span>
+                              <div>
+                                <p className="text-sm font-medium mb-1">Completion Feedback:</p>
+                                <p className="text-sm">{row.original.feedback}</p>
+                              </div>
+                            </div>
+                          )}
                         </div>
                       </TableCell>
                     </TableRow>
