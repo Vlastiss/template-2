@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { doc, getDoc, updateDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase/firebase";
@@ -8,6 +8,14 @@ import { useAuth } from "@/lib/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { formatDate } from "@/lib/utils";
 import { FileText, Download } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { cn } from "@/lib/utils";
 
 interface Job {
   id: string;
@@ -24,6 +32,63 @@ interface Job {
   updatedAt: any;
 }
 
+const getFileType = (url: string): 'image' | 'video' | 'pdf' | 'doc' | 'other' => {
+  try {
+    const decodedUrl = decodeURIComponent(url);
+    if (/\.(jpg|jpeg|png|gif|webp|svg)/i.test(decodedUrl)) return 'image';
+    if (/\.(mov|mp4|webm|avi)/i.test(decodedUrl)) return 'video';
+    if (/\.pdf/i.test(decodedUrl)) return 'pdf';
+    if (/\.(doc|docx)/i.test(decodedUrl)) return 'doc';
+    return 'other';
+  } catch {
+    return 'other';
+  }
+};
+
+const FilePreview = ({ url, onClick }: { url: string; onClick: () => void }) => {
+  const fileType = getFileType(url);
+
+  return (
+    <div 
+      className="relative aspect-video rounded-lg overflow-hidden bg-gray-50 cursor-pointer hover:bg-gray-100"
+      onClick={onClick}
+    >
+      {fileType === 'image' && (
+        <img
+          src={url}
+          alt="File preview"
+          className="w-full h-full object-contain"
+        />
+      )}
+      {fileType === 'video' && (
+        <div className="relative w-full h-full">
+          <video
+            src={url}
+            className="w-full h-full object-contain"
+            muted
+          />
+          <div className="absolute inset-0 flex items-center justify-center bg-black/5">
+            <div className="w-12 h-12 rounded-full bg-white/90 flex items-center justify-center">
+              <div className="w-0 h-0 border-l-[8px] border-l-black border-t-[6px] border-t-transparent border-b-[6px] border-b-transparent ml-1" />
+            </div>
+          </div>
+        </div>
+      )}
+      {(fileType === 'pdf' || fileType === 'doc') && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center">
+          <FileText className={cn(
+            "w-12 h-12",
+            fileType === 'pdf' ? "text-red-500" : "text-blue-500"
+          )} />
+          <span className="mt-2 text-sm font-medium text-gray-500">
+            {fileType.toUpperCase()}
+          </span>
+        </div>
+      )}
+    </div>
+  );
+};
+
 export default function JobDetailsPage() {
   const [job, setJob] = useState<Job | null>(null);
   const [loading, setLoading] = useState(true);
@@ -32,6 +97,7 @@ export default function JobDetailsPage() {
   const params = useParams();
   const router = useRouter();
   const { user } = useAuth();
+  const [selectedFile, setSelectedFile] = useState<string | null>(null);
 
   // Function to extract client information from description
   const extractClientInfo = (description: string) => {
@@ -225,56 +291,13 @@ export default function JobDetailsPage() {
             <div>
               <h3 className="text-sm font-medium text-gray-500 mb-3">Attachments</h3>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {job.attachments.map((url, index) => {
-                  // Check if URL is an image by both extension and content type
-                  const isImage = url.match(/\.(jpg|jpeg|png|gif|webp|svg)$/i) || url.includes('image');
-                  
-                  return (
-                    <div key={url} className="border rounded-lg overflow-hidden bg-gray-50">
-                      {isImage ? (
-                        <div className="relative">
-                          {/* Image container with fixed aspect ratio */}
-                          <div className="aspect-w-16 aspect-h-9">
-                            <img
-                              src={url}
-                              alt={`Attachment ${index + 1}`}
-                              className="object-contain w-full h-full"
-                              onError={(e) => {
-                                // If image fails to load, show file icon instead
-                                e.currentTarget.style.display = 'none';
-                                e.currentTarget.nextElementSibling?.classList.remove('hidden');
-                              }}
-                            />
-                            <div className="hidden flex items-center justify-center">
-                              <FileText className="h-16 w-16 text-gray-400" />
-                            </div>
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="aspect-w-16 aspect-h-9 flex items-center justify-center bg-gray-100">
-                          <FileText className="h-16 w-16 text-gray-400" />
-                        </div>
-                      )}
-                      <div className="p-3 border-t bg-white">
-                        <div className="flex items-center justify-between">
-                          <span className="text-sm text-gray-600">
-                            {isImage ? 'Image' : 'File'} {index + 1}
-                          </span>
-                          <a
-                            href={url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            download
-                            className="flex items-center space-x-1 text-sm text-blue-600 hover:text-blue-800"
-                          >
-                            <Download className="h-4 w-4" />
-                            <span>Download</span>
-                          </a>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
+                {job.attachments.map((url) => (
+                  <FilePreview
+                    key={url}
+                    url={url}
+                    onClick={() => setSelectedFile(url)}
+                  />
+                ))}
               </div>
             </div>
           )}
@@ -325,6 +348,80 @@ export default function JobDetailsPage() {
           </div>
         </div>
       </div>
+
+      <Dialog open={!!selectedFile} onOpenChange={(open) => !open && setSelectedFile(null)}>
+        <DialogContent className="max-w-4xl">
+          <DialogHeader>
+            <DialogTitle>File Preview</DialogTitle>
+            <DialogDescription>
+              <a 
+                href={selectedFile || ''} 
+                target="_blank" 
+                rel="noopener noreferrer"
+                className="text-sm text-blue-500 hover:underline"
+              >
+                Open original
+              </a>
+            </DialogDescription>
+          </DialogHeader>
+          <div className="relative w-full bg-black/5 rounded-lg overflow-hidden">
+            {selectedFile && (() => {
+              const fileType = getFileType(selectedFile);
+              
+              switch (fileType) {
+                case 'video':
+                  return (
+                    <div className="aspect-video">
+                      <video
+                        src={selectedFile}
+                        controls
+                        className="w-full h-full"
+                        autoPlay
+                        playsInline
+                      />
+                    </div>
+                  );
+                case 'image':
+                  return (
+                    <div className="aspect-video">
+                      <img
+                        src={selectedFile}
+                        alt="Full preview"
+                        className="w-full h-full object-contain"
+                      />
+                    </div>
+                  );
+                case 'pdf':
+                case 'doc':
+                  return (
+                    <div className="h-[80vh]">
+                      <iframe
+                        src={`https://docs.google.com/viewer?url=${encodeURIComponent(selectedFile)}&embedded=true`}
+                        className="w-full h-full rounded-lg"
+                        frameBorder="0"
+                      />
+                    </div>
+                  );
+                default:
+                  return (
+                    <div className="p-8 text-center">
+                      <FileText className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+                      <p className="text-gray-600">Preview not available</p>
+                      <a 
+                        href={selectedFile} 
+                        target="_blank" 
+                        rel="noopener noreferrer"
+                        className="mt-4 inline-block text-blue-500 hover:underline"
+                      >
+                        Download file
+                      </a>
+                    </div>
+                  );
+              }
+            })()}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
