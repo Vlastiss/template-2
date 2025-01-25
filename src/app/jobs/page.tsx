@@ -154,100 +154,95 @@ const ImageThumbnail = ({ url }: { url: string }) => {
   );
 };
 
-// Update the getFileType function to include video
+// Update the getFileType function to better handle video files
 const getFileType = (url: string): 'image' | 'video' | 'pdf' | 'doc' | 'other' => {
   try {
     const decodedUrl = decodeURIComponent(url);
-    if (/\.(jpg|jpeg|png|gif|webp|svg)/i.test(decodedUrl)) return 'image';
-    if (/\.(mov|mp4|webm|avi)/i.test(decodedUrl)) return 'video';
+    // Check for video files first
+    if (/\.(mov|mp4|webm|avi|quicktime|MOV|MP4|WEBM|AVI)/i.test(decodedUrl)) return 'video';
+    // Then check for images
+    if (/\.(jpg|jpeg|png|gif|webp|svg|JPG|JPEG|PNG|GIF|WEBP|SVG)/i.test(decodedUrl)) return 'image';
+    // Then PDFs
     if (/\.pdf/i.test(decodedUrl)) return 'pdf';
+    // Then documents
     if (/\.(doc|docx)/i.test(decodedUrl)) return 'doc';
+    // Check MIME type in URL if present
+    if (decodedUrl.includes('video/')) return 'video';
+    if (decodedUrl.includes('image/')) return 'image';
+    if (decodedUrl.includes('application/pdf')) return 'pdf';
+    if (decodedUrl.includes('application/msword') || decodedUrl.includes('application/vnd.openxmlformats-officedocument.wordprocessingml.document')) return 'doc';
     return 'other';
-  } catch {
+  } catch (error) {
+    console.error('Error in getFileType:', error);
     return 'other';
   }
 };
 
-// Update the FilePreview component to handle video playback
+// Update the FilePreview component
 const FilePreview = ({ url }: { url: string }) => {
   const fileType = getFileType(url);
   const [previewError, setPreviewError] = useState(false);
-  const [isPlaying, setIsPlaying] = useState(false);
-  const videoRef = useRef<HTMLVideoElement>(null);
-
-  const handleVideoClick = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (!videoRef.current) return;
-
-    if (isPlaying) {
-      videoRef.current.pause();
-    } else {
-      videoRef.current.play();
-    }
-    setIsPlaying(!isPlaying);
-  };
 
   return (
-    <div className="relative w-12 h-12 rounded border overflow-hidden hover:bg-gray-100 cursor-pointer group">
+    <div 
+      className="relative w-12 h-12 rounded border overflow-hidden hover:bg-gray-100 cursor-pointer group"
+      role="button"
+      aria-label={`Preview ${fileType} file`}
+    >
       {fileType === 'image' && !previewError ? (
         <img
           src={url}
-          alt="File preview"
+          alt={`File preview`}
           className="w-full h-full object-cover"
           onError={() => setPreviewError(true)}
         />
       ) : fileType === 'video' ? (
-        <div className="relative w-full h-full" onClick={handleVideoClick}>
-          <video
-            ref={videoRef}
-            src={url}
-            className="w-full h-full object-cover"
-            onError={() => setPreviewError(true)}
-            onEnded={() => setIsPlaying(false)}
-            muted
-            loop
-          />
-          <div className={cn(
-            "absolute inset-0 flex items-center justify-center transition-opacity duration-200",
-            isPlaying ? "bg-black/10" : "bg-black/5"
-          )}>
-            <div className={cn(
-              "w-6 h-6 rounded-full bg-white/90 flex items-center justify-center",
-              "transition-transform duration-200",
-              isPlaying ? "scale-90" : "scale-100"
-            )}>
-              {isPlaying ? (
-                <div className="w-3 h-3 flex items-center justify-center">
-                  <div className="w-1 h-3 bg-black mx-0.5" />
-                  <div className="w-1 h-3 bg-black mx-0.5" />
-                </div>
-              ) : (
-                <div className="w-0 h-0 border-l-[6px] border-l-black border-t-[4px] border-t-transparent border-b-[4px] border-b-transparent ml-0.5" />
-              )}
+        <div className="relative w-full h-full bg-gray-100">
+          <div 
+            className="absolute inset-0 flex items-center justify-center"
+            aria-label="Video preview"
+          >
+            <div 
+              className="w-6 h-6 rounded-full bg-white/90 flex items-center justify-center shadow-sm"
+              role="presentation"
+            >
+              <div className="w-0 h-0 border-l-[6px] border-l-black border-t-[4px] border-t-transparent border-b-[4px] border-b-transparent ml-0.5" />
             </div>
+          </div>
+          <div 
+            className="absolute bottom-0 left-0 right-0 bg-black/10 py-0.5"
+            role="presentation"
+          >
+            <span className="text-[8px] font-medium text-white text-center block">VIDEO</span>
           </div>
         </div>
       ) : (
-        <div className="w-full h-full flex flex-col items-center justify-center bg-gray-50 p-1">
+        <div 
+          className="w-full h-full flex flex-col items-center justify-center bg-gray-50 p-1"
+          role="presentation"
+        >
           {fileType === 'pdf' ? (
             <>
-              <FileText className="w-6 h-6 text-red-500" />
+              <FileText className="w-6 h-6 text-red-500" aria-hidden="true" />
               <span className="text-[8px] font-medium text-gray-500">PDF</span>
             </>
           ) : fileType === 'doc' ? (
             <>
-              <FileText className="w-6 h-6 text-blue-500" />
+              <FileText className="w-6 h-6 text-blue-500" aria-hidden="true" />
               <span className="text-[8px] font-medium text-gray-500">DOC</span>
             </>
           ) : (
             <>
-              <FileText className="w-6 h-6 text-gray-500" />
+              <FileText className="w-6 h-6 text-gray-500" aria-hidden="true" />
               <span className="text-[8px] font-medium text-gray-500">FILE</span>
             </>
           )}
         </div>
       )}
-      <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors duration-200" />
+      <div 
+        className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors duration-200"
+        role="presentation"
+      />
     </div>
   );
 };
@@ -765,13 +760,35 @@ export default function JobsPage() {
               switch (fileType) {
                 case 'video':
                   return (
-                    <div className="aspect-video">
+                    <div className="aspect-video bg-black" role="presentation">
                       <video
+                        key={selectedImage}
                         src={selectedImage}
                         controls
+                        controlsList="nodownload"
                         className="w-full h-full"
                         autoPlay
                         playsInline
+                        preload="metadata"
+                        aria-label="Video preview"
+                        onLoadedMetadata={(e) => {
+                          const video = e.target as HTMLVideoElement;
+                          console.log('Video metadata loaded:', {
+                            duration: video.duration,
+                            videoWidth: video.videoWidth,
+                            videoHeight: video.videoHeight
+                          });
+                        }}
+                        onError={(e) => {
+                          console.error('Video error:', e);
+                          const target = e.target as HTMLVideoElement;
+                          console.log('Video error details:', {
+                            error: target.error,
+                            networkState: target.networkState,
+                            readyState: target.readyState,
+                            src: target.src
+                          });
+                        }}
                       />
                     </div>
                   );

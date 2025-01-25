@@ -8,6 +8,7 @@ import { ref as storageRef, uploadBytes, getDownloadURL } from "firebase/storage
 import { db, storage } from "@/lib/firebase/firebase";
 import { Upload, LoaderPinwheel } from "lucide-react";
 import { enhanceJobDescription } from "@/lib/utils/openai";
+import { Toast } from "@/components/ui/toast"
 
 interface JobFormData {
   title: string;
