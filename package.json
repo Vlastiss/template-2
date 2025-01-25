@@ -13,6 +13,7 @@
     "@ai-sdk/openai": "^0.0.54",
     "@deepgram/sdk": "^3.6.0",
     "@radix-ui/react-dialog": "^1.1.5",
+    "@radix-ui/react-label": "^2.1.1",
     "@tanstack/react-table": "^8.20.6",
     "ai": "^2.2.35",
     "class-variance-authority": "^0.7.1",
