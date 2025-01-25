@@ -6,7 +6,7 @@ import { db } from "@/lib/firebase/firebase";
 import { useAuth } from "@/lib/hooks/useAuth";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
-import { ArrowUpDown, ChevronDown, ChevronUp, Info, Trash2, ChevronRight } from "lucide-react";
+import { ArrowUpDown, ChevronDown, ChevronUp, Info, Trash2, ChevronRight, FileText, Image as ImageIcon } from "lucide-react";
 import {
   Table,
   TableBody,
@@ -15,6 +15,13 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   ColumnDef,
   flexRender,
@@ -39,6 +46,7 @@ interface Job {
   description?: string;
   assignedTo?: string;
   feedback?: string;
+  attachments?: string[];
 }
 
 const getPriorityColor = (priority: string | undefined) => {
@@ -73,11 +81,85 @@ const getStatusColor = (status: string) => {
   }
 };
 
+const isImageFile = (url: string) => {
+  try {
+    // For Firebase Storage URLs, check if it contains 'jobs' folder and common image extensions
+    const decodedUrl = decodeURIComponent(url);
+    return decodedUrl.includes('/jobs/') && 
+           /\.(jpg|jpeg|png|gif|webp|svg|JPG|JPEG|PNG|GIF|WEBP|SVG)/.test(decodedUrl);
+  } catch (error) {
+    console.error('Error in isImageFile:', error);
+    return false;
+  }
+};
+
+const getFileIcon = (url: string) => {
+  if (isImageFile(url)) {
+    return <ImageIcon className="w-6 h-6" />;
+  }
+  return <FileText className="w-6 h-6" />;
+};
+
+const ImageDebug = ({ url }: { url: string }) => {
+  const [status, setStatus] = useState<'loading' | 'success' | 'error'>('loading');
+  
+  useEffect(() => {
+    const img = new Image();
+    img.onload = () => {
+      console.log('Debug - Image loaded:', url);
+      setStatus('success');
+    };
+    img.onerror = () => {
+      console.error('Debug - Image failed:', url);
+      setStatus('error');
+    };
+    img.src = url;
+  }, [url]);
+
+  return (
+    <div className="absolute top-0 right-0 p-0.5">
+      <div 
+        className={cn(
+          "w-2 h-2 rounded-full",
+          status === 'loading' && "bg-yellow-500",
+          status === 'success' && "bg-green-500",
+          status === 'error' && "bg-red-500"
+        )}
+      />
+    </div>
+  );
+};
+
+const ImageThumbnail = ({ url }: { url: string }) => {
+  return (
+    <div className="relative w-12 h-12 rounded border overflow-hidden hover:bg-gray-100 cursor-pointer group">
+      <img
+        src={url}
+        alt="Attachment preview"
+        className="w-full h-full object-cover"
+        onError={(e) => {
+          const target = e.currentTarget;
+          target.style.display = 'none';
+          const parent = target.parentElement;
+          if (parent) {
+            const fallback = document.createElement('div');
+            fallback.className = 'w-full h-full flex items-center justify-center bg-gray-50';
+            fallback.innerHTML = '<svg class="w-6 h-6 text-gray-500" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>';
+            parent.appendChild(fallback);
+          }
+        }}
+      />
+      <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors duration-200" />
+    </div>
+  );
+};
+
 export default function JobsPage() {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [loading, setLoading] = useState(true);
   const [isAdmin, setIsAdmin] = useState(false);
   const { user } = useAuth();
+  const [selectedImage, setSelectedImage] = useState<string | null>(null);
 
   // Check if user is admin
   useEffect(() => {
@@ -114,7 +196,8 @@ export default function JobsPage() {
     const unsubscribe = onSnapshot(jobsQuery, (snapshot) => {
       const jobsData = snapshot.docs.map(doc => {
         const data = doc.data();
-        
+        console.log('Raw job data with attachments:', data.attachments);
+
         // Extract client info from description
         let clientName = '';
         let clientAddress = '';
@@ -173,7 +256,6 @@ export default function JobsPage() {
           }
         }
 
-        // Use extracted data or fallback to root level data
         return {
           id: doc.id,
           title: title || data.title || 'Untitled Job',
@@ -187,13 +269,14 @@ export default function JobsPage() {
           description: jobDescription.trim() || data.description || '',
           assignedTo: data.assignedTo || '',
           feedback: data.feedback || '',
+          attachments: Array.isArray(data.attachments) ? data.attachments : [],
         } as Job;
       });
 
       // Filter jobs based on user role
       const filteredJobs = isAdmin 
-        ? jobsData // Admin sees all jobs
-        : jobsData.filter(job => job.assignedTo === user?.email); // Employees see only their assigned jobs
+        ? jobsData 
+        : jobsData.filter(job => job.assignedTo === user?.email);
       
       setJobs(filteredJobs);
       setLoading(false);
@@ -234,6 +317,43 @@ export default function JobsPage() {
       cell: ({ row }: { row: Row<Job> }) => (
         <div className="font-medium">{row.original.title || 'Untitled Job'}</div>
       ),
+    },
+    {
+      header: "Attachments",
+      id: "attachments",
+      cell: ({ row }: { row: Row<Job> }) => {
+        const attachments = row.original.attachments || [];
+        
+        if (!attachments?.length) return null;
+
+        return (
+          <div className="flex gap-2">
+            {attachments.slice(0, 3).map((url) => (
+              <div
+                key={url}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (isImageFile(url)) {
+                    setSelectedImage(url);
+                  } else {
+                    window.open(url, '_blank');
+                  }
+                }}
+              >
+                {isImageFile(url) ? (
+                  <ImageThumbnail url={url} />
+                ) : (
+                  <div className="w-12 h-12 rounded border overflow-hidden hover:bg-gray-100 cursor-pointer group">
+                    <div className="w-full h-full flex items-center justify-center bg-gray-50">
+                      <FileText className="w-6 h-6 text-gray-500" />
+                    </div>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        );
+      },
     },
     {
       header: "Client",
@@ -422,23 +542,19 @@ export default function JobsPage() {
 
   const table = useReactTable({
     data: jobs,
-    columns: columns,
+    columns,
     getCoreRowModel: getCoreRowModel(),
     getExpandedRowModel: getExpandedRowModel(),
   });
 
   if (loading) {
-    return (
-      <div className="flex justify-center items-center min-h-[60vh]">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900"></div>
-      </div>
-    );
+    return <div>Loading...</div>;
   }
 
   return (
-    <div className="py-8">
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">
+    <div className="container mx-auto py-10">
+      <div className="flex justify-between items-center mb-8">
+        <h1 className="text-3xl font-bold">
           {isAdmin ? "All Jobs" : "My Assigned Jobs"}
         </h1>
         {isAdmin && (
@@ -529,6 +645,31 @@ export default function JobsPage() {
           </TableBody>
         </Table>
       </div>
+
+      <Dialog open={!!selectedImage} onOpenChange={(open) => !open && setSelectedImage(null)}>
+        <DialogContent className="max-w-4xl">
+          <DialogHeader>
+            <DialogTitle>Image Preview</DialogTitle>
+            <DialogDescription>
+              <a 
+                href={selectedImage || ''} 
+                target="_blank" 
+                rel="noopener noreferrer"
+                className="text-sm text-blue-500 hover:underline"
+              >
+                Open original
+              </a>
+            </DialogDescription>
+          </DialogHeader>
+          <div className="relative w-full aspect-video bg-black/5 rounded-lg overflow-hidden">
+            <img
+              src={selectedImage || ''}
+              alt="Full preview"
+              className="w-full h-full object-contain"
+            />
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 } 

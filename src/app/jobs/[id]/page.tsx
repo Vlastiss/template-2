@@ -35,69 +35,61 @@ export default function JobDetailsPage() {
 
   // Function to extract client information from description
   const extractClientInfo = (description: string) => {
+    console.log('Raw description:', description);
     const lines = description.split('\n');
     let clientName = '';
     let clientContact = '';
     let clientAddress = '';
     let jobDescription = '';
     let currentSection = '';
-    
-    console.log("Starting extraction from description:", description);
+    let isInJobDescription = false;
     
     for (const line of lines) {
       const trimmedLine = line.trim();
       if (!trimmedLine) continue;
 
-      // Check for section headers (both ### and ** style)
-      if (line.startsWith('### ') || line.startsWith('**')) {
-        const sectionMatch = line.match(/(?:###\s*|\*\*)(.*?)(?:\*\*)?$/);
-        if (sectionMatch) {
-          currentSection = sectionMatch[1].trim();
-          console.log("Found section:", currentSection);
-          continue;
+      // Check for new section header
+      if (trimmedLine.startsWith('### ')) {
+        console.log('Found section:', trimmedLine);
+        if (isInJobDescription) {
+          // We've hit a new section after Job Description, so we're done
+          console.log('Ending job description at:', trimmedLine);
+          break;
         }
+        currentSection = trimmedLine.replace('### ', '').replace(':', '').trim();
+        isInJobDescription = currentSection === 'Job Description';
+        if (isInJobDescription) {
+          console.log('Starting job description');
+        }
+        continue;
       }
 
-      console.log("Processing line in section", currentSection, ":", trimmedLine);
+      // Only add lines when we're in Job Description section
+      if (isInJobDescription) {
+        console.log('Adding line to description:', trimmedLine);
+        jobDescription += trimmedLine + '\n';
+      }
 
-      switch (currentSection) {
-        case 'Client Details':
-          // Clean up the line from markdown and special characters
-          const cleanLine = trimmedLine
-            .replace(/^\s*[-*•]\s*/, '')     // Remove list markers
-            .replace(/\*\*/g, '')            // Remove bold markers
-            .trim();
+      if (currentSection === 'Client Details') {
+        const cleanLine = trimmedLine
+          .replace(/^\s*[-*•]\s*/, '')
+          .replace(/\*\*/g, '')
+          .trim();
 
-          // Check if line contains a label
-          const labelMatch = cleanLine.match(/^(Name|Client Name|Phone|Contact|Email|Address):\s*(.+)/i);
-          if (labelMatch) {
-            const [, label, value] = labelMatch;
-            const normalizedLabel = label.toLowerCase();
-            if (normalizedLabel.includes('name') && !clientName) {
-              clientName = value.trim();
-            } else if ((normalizedLabel.includes('phone') || normalizedLabel.includes('contact')) && !clientContact && value.includes('07')) {
-              clientContact = value.trim();
-            } else if (normalizedLabel.includes('address') && !clientAddress) {
-              clientAddress = value.trim();
-            }
-          }
-          break;
-        case 'Job Description':
-          jobDescription += trimmedLine + '\n';
-          break;
+        if (cleanLine.toLowerCase().includes('name:')) {
+          clientName = cleanLine.split(':')[1].trim();
+        } else if (cleanLine.toLowerCase().includes('phone:')) {
+          clientContact = cleanLine.split(':')[1].trim();
+        } else if (cleanLine.toLowerCase().includes('address:')) {
+          clientAddress = cleanLine.split(':')[1].trim();
+        }
       }
     }
 
-    console.log("Extracted info:", {
-      clientName,
-      clientContact,
-      clientAddress,
-      jobDescription: jobDescription.trim()
-    });
-
-    return { 
-      clientName: clientName || 'No client name', 
-      clientContact: clientContact || 'No contact info', 
+    console.log('Final job description:', jobDescription.trim());
+    return {
+      clientName: clientName || 'No client name',
+      clientContact: clientContact || 'No contact info',
       clientAddress: clientAddress || 'No address',
       jobDescription: jobDescription.trim()
     };
@@ -111,15 +103,21 @@ export default function JobDetailsPage() {
         const jobDoc = await getDoc(doc(db, "jobs", params.id as string));
         if (jobDoc.exists()) {
           const jobData = jobDoc.data();
+          console.log('Raw job data:', jobData);
           const clientInfo = extractClientInfo(jobData.description);
-          setJob({ 
-            id: jobDoc.id, 
+          console.log('Extracted client info:', clientInfo);
+          
+          const newJob = {
+            id: jobDoc.id,
             ...jobData,
             clientName: jobData.clientName || clientInfo.clientName,
             clientContact: jobData.clientPhone || clientInfo.clientContact,
             clientAddress: jobData.clientAddress || clientInfo.clientAddress,
-            description: jobData.description || ''
-          } as Job);
+            description: clientInfo.jobDescription || jobData.description || ''
+          } as Job;
+          
+          console.log('Setting job state:', newJob);
+          setJob(newJob);
         } else {
           setError("Job not found");
         }
@@ -177,28 +175,6 @@ export default function JobDetailsPage() {
     );
   }
 
-  // Function to get job description excluding client details
-  const getJobDescription = () => {
-    if (!job?.description) return '';
-    
-    const lines = job.description.split('\n');
-    let description = '';
-    let currentSection = '';
-
-    for (const line of lines) {
-      if (line.startsWith('### ')) {
-        currentSection = line.replace('### ', '').trim();
-        continue;
-      }
-
-      if (currentSection === 'Job Description' && line.trim()) {
-        description += line + '\n';
-      }
-    }
-
-    return description.trim();
-  };
-
   return (
     <div className="py-8">
       <div className="max-w-3xl mx-auto">
@@ -242,7 +218,7 @@ export default function JobDetailsPage() {
 
           <div>
             <h3 className="text-sm font-medium text-gray-500">Description</h3>
-            <p className="mt-2 text-gray-900 whitespace-pre-wrap">{getJobDescription()}</p>
+            <p className="mt-2 text-gray-900 whitespace-pre-wrap">{job.description}</p>
           </div>
 
           {job.attachments && job.attachments.length > 0 && (

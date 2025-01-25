@@ -122,7 +122,7 @@ export default function NewJobPage() {
           continue;
         }
 
-        // Extract job title
+        // Extract job titles
         if ((currentSection === 'Job Title' || currentSection === 'Job Title/Name') && !jobTitle) {
           jobTitle = trimmedLine;
           console.log("Found job title:", jobTitle);
