@@ -6,7 +6,7 @@ import { db } from "@/lib/firebase/firebase";
 import { useAuth } from "@/lib/hooks/useAuth";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
-import { ArrowUpDown, ChevronDown, ChevronUp, Info, Trash2, ChevronRight, FileText, Image as ImageIcon } from "lucide-react";
+import { ArrowUpDown, ChevronDown, ChevronUp, Info, Trash2, ChevronRight, FileText, Image as ImageIcon, X } from "lucide-react";
 import {
   Table,
   TableBody,
@@ -21,6 +21,7 @@ import {
   DialogDescription,
   DialogHeader,
   DialogTitle,
+  DialogFooter,
 } from "@/components/ui/dialog";
 import {
   ColumnDef,
@@ -32,6 +33,11 @@ import {
   Column,
 } from "@tanstack/react-table";
 import { cn } from "@/lib/utils";
+import { useToast } from "@/hooks/use-toast"
+import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
+import { storage } from "@/lib/firebase/firebase";
+import { FileUploader } from "@/components/FileUploader";
+
 
 interface Job {
   id: string;
@@ -47,6 +53,7 @@ interface Job {
   assignedTo?: string;
   feedback?: string;
   attachments?: string[];
+  feedbackAttachments?: string[];
 }
 
 const getPriorityColor = (priority: string | undefined) => {
@@ -253,6 +260,80 @@ export default function JobsPage() {
   const [isAdmin, setIsAdmin] = useState(false);
   const { user } = useAuth();
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
+  const { toast } = useToast();
+  const [completionDialog, setCompletionDialog] = useState<{
+    isOpen: boolean;
+    jobId: string | null;
+    jobTitle: string | null;
+  }>({ isOpen: false, jobId: null, jobTitle: null });
+  const [completionFeedback, setCompletionFeedback] = useState("");
+  const [feedbackAttachments, setFeedbackAttachments] = useState<string[]>([]);
+  const [isUploading, setIsUploading] = useState(false);
+
+  const handleOpenCompletionDialog = (jobId: string, jobTitle: string) => {
+    setCompletionDialog({ isOpen: true, jobId, jobTitle });
+  };
+
+  const handleFileUpload = async (files: File[]) => {
+    setIsUploading(true);
+    const uploadedUrls: string[] = [];
+
+    try {
+      for (const file of files) {
+        const fileRef = ref(storage, `jobs/${completionDialog.jobId}/feedback/${file.name}`);
+        await uploadBytes(fileRef, file);
+        const url = await getDownloadURL(fileRef);
+        uploadedUrls.push(url);
+      }
+
+      setFeedbackAttachments(prev => [...prev, ...uploadedUrls]);
+      toast({
+        title: "Files Uploaded Successfully",
+        description: `${files.length} file(s) have been uploaded.`,
+      });
+    } catch (error) {
+      console.error("Error uploading files:", error);
+      toast({
+        title: "Upload Error",
+        description: "Failed to upload files. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  const handleCompleteJob = async () => {
+    if (!completionDialog.jobId || !completionFeedback.trim()) return;
+
+    try {
+      const jobRef = doc(db, "jobs", completionDialog.jobId);
+      await updateDoc(jobRef, {
+        status: "completed",
+        updatedAt: serverTimestamp(),
+        feedback: completionFeedback.trim(),
+        feedbackAttachments: feedbackAttachments,
+      });
+
+      toast({
+        title: "Job Completed Successfully! 🎉",
+        description: `Great work! The job "${completionDialog.jobTitle}" has been marked as complete.`,
+        duration: 5000,
+      });
+
+      // Reset all states
+      setCompletionDialog({ isOpen: false, jobId: null, jobTitle: null });
+      setCompletionFeedback("");
+      setFeedbackAttachments([]);
+    } catch (err) {
+      console.error("Error completing job:", err);
+      toast({
+        title: "Error",
+        description: "Failed to complete the job. Please try again.",
+        variant: "destructive",
+      });
+    }
+  };
 
   // Check if user is admin
   useEffect(() => {
@@ -363,6 +444,7 @@ export default function JobsPage() {
           assignedTo: data.assignedTo || '',
           feedback: data.feedback || '',
           attachments: Array.isArray(data.attachments) ? data.attachments : [],
+          feedbackAttachments: Array.isArray(data.feedbackAttachments) ? data.feedbackAttachments : [],
         } as Job;
       });
 
@@ -549,29 +631,29 @@ export default function JobsPage() {
           }
         };
 
-        const handleStatusUpdate = async (e: React.MouseEvent, newStatus: string) => {
+        const handleStatusUpdate = async (e: React.MouseEvent, newStatus: string, jobTitle: string) => {
           e.stopPropagation();
           try {
             const jobRef = doc(db, "jobs", row.original.id);
-            
-            if (newStatus === 'completed') {
-              const feedback = prompt('Please provide feedback about the job completion:');
-              if (feedback === null) return; // User cancelled the prompt
-              
-              await updateDoc(jobRef, {
-                status: newStatus,
-                updatedAt: serverTimestamp(),
-                feedback: feedback
-              });
-            } else {
-              await updateDoc(jobRef, {
-                status: newStatus,
-                updatedAt: serverTimestamp()
+            await updateDoc(jobRef, {
+              status: newStatus,
+              updatedAt: serverTimestamp()
+            });
+
+            if (newStatus === 'in-progress') {
+              toast({
+                title: "Job Accepted! 🎉",
+                description: `You've successfully accepted "${jobTitle}". You can now start working on this job.`,
+                duration: 5000,
               });
             }
           } catch (err) {
             console.error("Error updating job status:", err);
-            alert("Failed to update job status");
+            toast({
+              title: "Error",
+              description: "Failed to update job status. Please try again.",
+              variant: "destructive",
+            });
           }
         };
 
@@ -603,7 +685,7 @@ export default function JobsPage() {
                     variant="ghost"
                     size="sm"
                     className="text-blue-600 hover:text-blue-900"
-                    onClick={(e) => handleStatusUpdate(e, 'in-progress')}
+                    onClick={(e) => handleStatusUpdate(e, 'in-progress', row.original.title)}
                   >
                     Accept Job
                   </Button>
@@ -616,7 +698,10 @@ export default function JobsPage() {
                     variant="ghost"
                     size="sm"
                     className="text-green-600 hover:text-green-900"
-                    onClick={(e) => handleStatusUpdate(e, 'completed')}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleOpenCompletionDialog(row.original.id, row.original.title);
+                    }}
                   >
                     Complete Job
                   </Button>
@@ -707,7 +792,7 @@ export default function JobsPage() {
                             </span>
                             <p className="text-sm">{row.original.description}</p>
                           </div>
-                          {row.original.feedback && row.original.status === 'completed' && (
+                          {row.original.status === 'completed' && (
                             <div className="flex items-start text-primary/80 mt-2">
                               <span
                                 className="me-3 mt-0.5 flex w-7 shrink-0 justify-center"
@@ -715,9 +800,34 @@ export default function JobsPage() {
                               >
                                 <Info className="opacity-60" size={16} strokeWidth={2} />
                               </span>
-                              <div>
-                                <p className="text-sm font-medium mb-1">Completion Feedback:</p>
-                                <p className="text-sm">{row.original.feedback}</p>
+                              <div className="w-full">
+                                {row.original.feedback && (
+                                  <>
+                                    <p className="text-sm font-medium mb-1">Completion Feedback:</p>
+                                    <p className="text-sm mb-3">{row.original.feedback}</p>
+                                  </>
+                                )}
+                                
+                                {Array.isArray(row.original.feedbackAttachments) && row.original.feedbackAttachments.length > 0 && (
+                                  <div className="mt-4">
+                                    <p className="text-sm font-medium mb-2">Feedback Attachments:</p>
+                                    <div className="flex flex-wrap gap-2">
+                                      {row.original.feedbackAttachments.map((url, index) => (
+                                        <div
+                                          key={`${url}-${index}`}
+                                          className="relative group rounded-md border p-2 hover:bg-accent cursor-pointer"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            setSelectedImage(url);
+                                          }}
+                                        >
+                                          <FilePreview url={url} />
+                                          <div className="absolute inset-0 bg-black/0 group-hover:bg-black/5 transition-colors rounded-md" />
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+                                )}
                               </div>
                             </div>
                           )}
@@ -737,6 +847,96 @@ export default function JobsPage() {
           </TableBody>
         </Table>
       </div>
+
+      {/* Completion Dialog */}
+      <Dialog 
+        open={completionDialog.isOpen} 
+        onOpenChange={(open) => {
+          if (!open) {
+            setCompletionDialog({ isOpen: false, jobId: null, jobTitle: null });
+            setCompletionFeedback("");
+            setFeedbackAttachments([]);
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle>Complete Job</DialogTitle>
+            <DialogDescription>
+              You&apos;re about to mark this job as complete. Please provide some feedback about the work done.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="space-y-2">
+              <h4 className="font-medium">Job Title</h4>
+              <p className="text-sm text-muted-foreground">{completionDialog.jobTitle}</p>
+            </div>
+            <div className="space-y-2">
+              <label htmlFor="feedback" className="text-sm font-medium">
+                Completion Feedback
+              </label>
+              <textarea
+                id="feedback"
+                className="flex min-h-[100px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                placeholder="Please describe the work completed, any challenges faced, and the final outcome..."
+                value={completionFeedback}
+                onChange={(e) => setCompletionFeedback(e.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">
+                Feedback Attachments
+              </label>
+              <FileUploader
+                onFilesSelected={handleFileUpload}
+                isUploading={isUploading}
+                accept="image/*,application/pdf"
+                maxFiles={5}
+              />
+              {feedbackAttachments.length > 0 && (
+                <div className="mt-4 space-y-2">
+                  <p className="text-sm font-medium">Uploaded Files:</p>
+                  <div className="flex flex-wrap gap-2">
+                    {feedbackAttachments.map((url, index) => (
+                      <div
+                        key={url}
+                        className="relative group rounded-md border p-2 hover:bg-accent"
+                      >
+                        <FilePreview url={url} />
+                        <button
+                          onClick={() => setFeedbackAttachments(prev => prev.filter(u => u !== url))}
+                          className="absolute -top-2 -right-2 bg-destructive text-destructive-foreground rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity"
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="ghost"
+              onClick={() => {
+                setCompletionDialog({ isOpen: false, jobId: null, jobTitle: null });
+                setCompletionFeedback("");
+                setFeedbackAttachments([]);
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleCompleteJob}
+              disabled={!completionFeedback.trim()}
+              className="bg-green-600 hover:bg-green-700"
+            >
+              Mark as Complete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={!!selectedImage} onOpenChange={(open) => !open && setSelectedImage(null)}>
         <DialogContent className="max-w-4xl">
