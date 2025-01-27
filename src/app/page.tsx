@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useAuth } from "@/lib/hooks/useAuth";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
-import { collection, query, orderBy, onSnapshot } from "firebase/firestore";
+import { collection, query, orderBy, onSnapshot, where } from "firebase/firestore";
 import { db } from "@/lib/firebase/firebase";
 import { PlusCircle } from "lucide-react";
 
@@ -14,6 +14,8 @@ interface Job {
   title: string;
   clientName: string;
   createdAt: any;
+  assignedToId: string;
+  assignedTo: string;
 }
 
 interface JobCounts {
@@ -35,14 +37,50 @@ export default function Home() {
   useEffect(() => {
     if (!user) return;
 
-    const jobsQuery = query(collection(db, "jobs"), orderBy("createdAt", "desc"));
+    console.log('Current user:', user.email);
+    console.log('Is admin?', isAdmin());
+
+    let jobsQuery;
+    if (isAdmin()) {
+      // Admin sees all jobs
+      jobsQuery = query(collection(db, "jobs"), orderBy("createdAt", "desc"));
+      console.log('Using admin query');
+    } else {
+      // Employee sees only their assigned jobs
+      console.log('Using employee query for:', user.email);
+      // Query using either assignedTo (email) or assignedToId (uid)
+      jobsQuery = query(
+        collection(db, "jobs"),
+        where("assignedTo", "in", [user.email, user.uid])
+      );
+    }
     
     const unsubscribe = onSnapshot(jobsQuery, (snapshot) => {
-      const jobsData = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      })) as Job[];
+      console.log('Query snapshot size:', snapshot.size);
+      let jobsData = snapshot.docs.map(doc => {
+        const data = doc.data();
+        console.log('Job data:', {
+          id: doc.id,
+          assignedTo: data.assignedTo,
+          assignedToId: data.assignedToId,
+          ...data
+        });
+        return {
+          id: doc.id,
+          ...data
+        };
+      }) as Job[];
+
+      // Sort in memory for employee view
+      if (!isAdmin()) {
+        jobsData = jobsData.sort((a, b) => {
+          const dateA = a.createdAt?.toMillis?.() || 0;
+          const dateB = b.createdAt?.toMillis?.() || 0;
+          return dateB - dateA;
+        });
+      }
       
+      console.log('Processed jobs:', jobsData);
       setJobs(jobsData);
 
       // Calculate counts
@@ -57,12 +95,16 @@ export default function Home() {
         return acc;
       }, { active: 0, completed: 0, pending: 0 });
 
+      console.log('Job counts:', counts);
       setJobCounts(counts);
+      setLoading(false);
+    }, (error) => {
+      console.error('Firestore query error:', error);
       setLoading(false);
     });
 
     return () => unsubscribe();
-  }, [user]);
+  }, [user, isAdmin]);
 
   if (!user) {
     return (
