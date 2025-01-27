@@ -9,6 +9,7 @@ import { db, storage } from "@/lib/firebase/firebase";
 import { Upload, LoaderPinwheel } from "lucide-react";
 import { enhanceJobDescription } from "@/lib/utils/openai";
 import { Toast } from "@/components/ui/toast"
+import FileUpload from "@/components/FileUpload";
 
 interface JobFormData {
   title: string;
@@ -226,10 +227,10 @@ export default function NewJobPage() {
   return (
     <div className="max-w-4xl mx-auto py-8 px-4">
       <form onSubmit={handleSubmit} className="space-y-6">
-        <div className="bg-white p-6 rounded-lg shadow-sm border">
+        <div className="bg-background p-6 rounded-lg shadow-sm border border-border">
           <div className="space-y-4">
             <div>
-              <label htmlFor="description" className="block text-sm font-medium text-gray-700 mb-1">
+              <label htmlFor="description" className="block text-sm font-medium mb-1">
                 Customer message
               </label>
               <textarea
@@ -239,13 +240,13 @@ export default function NewJobPage() {
                 placeholder="Insert data from email"
                 value={formData.description}
                 onChange={handleChange}
-                className="w-full p-4 text-gray-900 border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500"
+                className="w-full p-4 bg-background border-input rounded-lg focus:ring-ring focus:border-ring"
               />
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label htmlFor="assignedTo" className="block text-sm font-medium text-gray-700 mb-1">
+                <label htmlFor="assignedTo" className="block text-sm font-medium mb-1">
                   Assign To
                 </label>
                 <select
@@ -253,7 +254,7 @@ export default function NewJobPage() {
                   id="assignedTo"
                   value={formData.assignedTo}
                   onChange={handleChange}
-                  className="w-full p-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 text-black"
+                  className="w-full p-2 bg-background border-input rounded-lg focus:ring-ring focus:border-ring"
                 >
                   <option value="">Select User</option>
                   {users.map((user) => (
@@ -265,7 +266,7 @@ export default function NewJobPage() {
               </div>
 
               <div>
-                <label htmlFor="startTime" className="block text-sm font-medium text-gray-700 mb-1">
+                <label htmlFor="startTime" className="block text-sm font-medium mb-1">
                   Start Time
                 </label>
                 <input
@@ -274,26 +275,62 @@ export default function NewJobPage() {
                   id="startTime"
                   value={formData.startTime}
                   onChange={handleChange}
-                  className="w-full p-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 text-black"
+                  className="w-full p-2 bg-background border-input rounded-lg focus:ring-ring focus:border-ring"
                 />
               </div>
             </div>
 
             <div>
-              <label htmlFor="attachments" className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-medium mb-1">
                 Attachments
               </label>
-              <input
-                type="file"
-                id="attachments"
-                multiple
-                onChange={handleFileChange}
-                className="w-full p-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500"
-              />
+              <div className="space-y-4">
+                {formData.attachments.map((file, index) => (
+                  <FileUpload
+                    key={index}
+                    uniqueId={`existing-${index}`}
+                    existingFile={file}
+                    onFileChange={(newFile) => {
+                      const newAttachments = [...formData.attachments];
+                      if (newFile) {
+                        newAttachments[index] = newFile;
+                      } else {
+                        newAttachments.splice(index, 1);
+                      }
+                      setFormData(prev => ({
+                        ...prev,
+                        attachments: newAttachments
+                      }));
+                    }}
+                    maxSizeMB={100}
+                    acceptedTypes="image/*,video/*,.pdf,.doc,.docx"
+                  />
+                ))}
+                {formData.attachments.length < 5 && ( // Limit to 5 attachments
+                  <FileUpload
+                    uniqueId="new-upload"
+                    onFileChange={(file) => {
+                      if (file) {
+                        setFormData(prev => ({
+                          ...prev,
+                          attachments: [...prev.attachments, file]
+                        }));
+                      }
+                    }}
+                    maxSizeMB={100}
+                    acceptedTypes="image/*,video/*,.pdf,.doc,.docx"
+                  />
+                )}
+              </div>
+              {formData.attachments.length >= 5 && (
+                <p className="text-sm text-gray-500 mt-2">
+                  Maximum of 5 attachments allowed
+                </p>
+              )}
             </div>
 
             {error && (
-              <div className="text-red-500 text-sm mt-2">
+              <div className="text-destructive text-sm mt-2">
                 {error}
               </div>
             )}
@@ -302,6 +339,7 @@ export default function NewJobPage() {
               <Button
                 type="submit"
                 disabled={isSubmitting || !formData.description.trim()}
+                variant="default"
                 className={`flex items-center space-x-2 ${isSubmitting ? 'opacity-50 cursor-not-allowed' : ''}`}
               >
                 {isSubmitting ? (

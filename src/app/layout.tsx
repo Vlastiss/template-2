@@ -17,11 +17,11 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" suppressHydrationWarning>
-      <body className={inter.className} suppressHydrationWarning>
+    <html lang="en" className="dark" suppressHydrationWarning>
+      <body className={`${inter.className} bg-background`} suppressHydrationWarning>
         <ThemeProvider>
           <AuthProvider>
-            <div className="min-h-screen bg-gray-50 dark:bg-gray-900 transition-colors duration-200">
+            <div className="min-h-screen">
               <Navbar />
               <main className="container mx-auto px-4 py-8">
                 {children}

@@ -11,19 +11,19 @@ export default function Navbar() {
   const { theme, toggleTheme } = useTheme();
 
   return (
-    <nav className="bg-white dark:bg-gray-800 shadow-md border-b sticky top-0 z-50 transition-colors duration-200">
+    <nav className="border-b border-border bg-background">
       <div className="container mx-auto px-4">
         <div className="flex justify-between items-center h-16">
-          <Link href="/" className="font-bold text-2xl text-gray-800 dark:text-white">
+          <Link href="/" className="text-xl font-semibold">
             Handyman Jobs
           </Link>
 
-          <div className="flex items-center space-x-6">
+          <div className="flex items-center space-x-4">
             {user ? (
               <>
                 <Link 
                   href="/jobs" 
-                  className="text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white font-medium"
+                  className="text-muted-foreground hover:text-foreground transition-colors"
                 >
                   Jobs
                 </Link>
@@ -31,7 +31,7 @@ export default function Navbar() {
                   <>
                     <Link 
                       href="/employees" 
-                      className="text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white font-medium"
+                      className="text-muted-foreground hover:text-foreground transition-colors"
                     >
                       Employees
                     </Link>

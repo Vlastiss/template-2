@@ -33,16 +33,16 @@ export default function LoginPage() {
   return (
     <div className="flex min-h-[80vh] flex-col justify-center py-12 sm:px-6 lg:px-8">
       <div className="sm:mx-auto sm:w-full sm:max-w-md">
-        <h2 className="mt-6 text-center text-3xl font-bold tracking-tight text-gray-900">
+        <h2 className="mt-6 text-center text-3xl font-bold tracking-tight">
           {isSignUp ? "Create an account" : "Sign in to your account"}
         </h2>
       </div>
 
       <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
-        <div className="bg-white px-4 py-8 shadow sm:rounded-lg sm:px-10">
+        <div className="bg-background px-4 py-8 shadow-sm border border-border sm:rounded-lg sm:px-10">
           <form className="space-y-6" onSubmit={handleSubmit}>
             <div>
-              <label htmlFor="email" className="block text-sm font-medium text-gray-700">
+              <label htmlFor="email" className="block text-sm font-medium">
                 Email address
               </label>
               <div className="mt-1">
@@ -54,13 +54,13 @@ export default function LoginPage() {
                   required
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  className="block w-full appearance-none rounded-md border border-gray-300 px-3 py-2 placeholder-gray-400 shadow-sm focus:border-primary focus:outline-none focus:ring-primary sm:text-sm"
+                  className="block w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:ring-2 focus:ring-ring focus:ring-offset-2"
                 />
               </div>
             </div>
 
             <div>
-              <label htmlFor="password" className="block text-sm font-medium text-gray-700">
+              <label htmlFor="password" className="block text-sm font-medium">
                 Password
               </label>
               <div className="mt-1">
@@ -72,13 +72,13 @@ export default function LoginPage() {
                   required
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="block w-full appearance-none rounded-md border border-gray-300 px-3 py-2 placeholder-gray-400 shadow-sm focus:border-primary focus:outline-none focus:ring-primary sm:text-sm"
+                  className="block w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:ring-2 focus:ring-ring focus:ring-offset-2"
                 />
               </div>
             </div>
 
             {error && (
-              <div className="text-red-600 text-sm text-center">{error}</div>
+              <div className="text-destructive text-sm text-center">{error}</div>
             )}
 
             <div>
@@ -95,10 +95,10 @@ export default function LoginPage() {
           <div className="mt-6">
             <div className="relative">
               <div className="absolute inset-0 flex items-center">
-                <div className="w-full border-t border-gray-300" />
+                <div className="w-full border-t border-border" />
               </div>
               <div className="relative flex justify-center text-sm">
-                <span className="bg-white px-2 text-gray-500">
+                <span className="bg-background px-2 text-muted-foreground">
                   {isSignUp ? "Already have an account?" : "Don't have an account?"}
                 </span>
               </div>
