@@ -185,7 +185,7 @@ const FilePreview = ({ url }: { url: string }) => {
 
   return (
     <div 
-      className="relative w-12 h-12 rounded border overflow-hidden hover:bg-gray-100 cursor-pointer group"
+      className="relative w-12 h-12 rounded border overflow-hidden hover:bg-gray-800 cursor-pointer group"
       role="button"
       aria-label={`Preview ${fileType} file`}
     >
@@ -677,7 +677,7 @@ export default function JobsPage() {
                 <Fragment key={row.id}>
                   <TableRow
                     key={row.id}
-                    className="cursor-pointer hover:bg-gray-50"
+                    className="cursor-pointer hover:bg-gray-800"
                     onClick={(e) => {
                       // Only navigate if not clicking the expand button
                       if (!(e.target as HTMLElement).closest('button')) {
