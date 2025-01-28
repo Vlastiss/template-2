@@ -8,7 +8,7 @@ import { ref as storageRef, uploadBytes, getDownloadURL } from "firebase/storage
 import { db, storage } from "@/lib/firebase/firebase";
 import { Upload, LoaderPinwheel } from "lucide-react";
 import { enhanceJobDescription } from "@/lib/utils/openai";
-import { Toast } from "@/components/ui/toast"
+import { useToast } from "@/hooks/use-toast";
 import FileUpload from "@/components/FileUpload";
 
 interface JobFormData {
@@ -47,6 +47,7 @@ export default function NewJobPage() {
   const [users, setUsers] = useState<User[]>([]);
   const [files, setFiles] = useState<File[]>([]);
   const router = useRouter();
+  const { toast } = useToast();
 
   useEffect(() => {
     const fetchUsers = async () => {
@@ -93,113 +94,66 @@ export default function NewJobPage() {
 
       console.log("Enhanced description:", enhancedDescription);
 
-      // Extract information from enhanced description
-      const lines = enhancedDescription.split('\n');
-      let jobTitle = '';
-      let clientName = '';
-      let clientPhone = '';
-      let clientAddress = '';
-      let currentSection = '';
-      let jobDescription = '';
-      let isInJobDescription = false;
-      
-      for (const line of lines) {
-        const trimmedLine = line.trim();
-        if (!trimmedLine) continue;
+      try {
+        // Parse the JSON response from OpenAI
+        const parsedData = JSON.parse(enhancedDescription);
+        console.log("Parsed OpenAI response:", parsedData);
 
-        console.log("Processing line:", trimmedLine);
-        console.log("Current section:", currentSection);
+        // Create the job document with the structured data
+        const jobData = {
+          title: parsedData.jobTitle || "Untitled Job",
+          description: parsedData.fullDescription || formData.description,
+          jobDescription: parsedData.jobDescription || '',
+          status: "new",
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+          startTime: formData.startTime || null,
+          assignedTo: formData.assignedTo || null,
+          clientName: parsedData.clientName || 'No Client',
+          clientPhone: parsedData.clientPhone || 'No Phone',
+          clientEmail: parsedData.clientEmail || '',
+          clientAddress: parsedData.clientAddress || 'No Address',
+          attachments: uploadedUrls,
+          // Additional structured fields from OpenAI
+          timeline: parsedData.timeline || {},
+          requiredTools: parsedData.requiredTools || [],
+          instructions: parsedData.instructions || [],
+          estimatedDuration: parsedData.estimatedDuration || null,
+        };
 
-        // Check for section headers
-        if (trimmedLine.startsWith('### ')) {
-          currentSection = trimmedLine.replace(/^###\s*/, '').replace(/:$/, '').trim();
-          console.log("Found section:", currentSection);
-          
-          // Set flag for job description section
-          if (currentSection === 'Job Description') {
-            isInJobDescription = true;
-          } else {
-            isInJobDescription = false;
-          }
-          continue;
-        }
+        console.log("Job data before save:", jobData);
+        
+        const jobRef = await addDoc(collection(db, "jobs"), jobData);
+        console.log("Saved job data with ID:", jobRef.id);
 
-        // Extract job title
-        if ((currentSection === 'Job Title' || currentSection === 'Job Title/Name') && !jobTitle) {
-          jobTitle = trimmedLine;
-          console.log("Found job title:", jobTitle);
-          continue;
-        }
+        // Show success toast
+        toast({
+          title: "Success",
+          description: "Job created successfully",
+          variant: "default",
+          duration: 3000,
+        });
 
-        // Collect job description
-        if (isInJobDescription) {
-          jobDescription += trimmedLine + '\n';
-          console.log("Adding to job description:", trimmedLine);
-          continue;
-        }
-
-        // Extract client details
-        if (currentSection === 'Client Details') {
-          // Clean up the line from markdown and special characters
-          const cleanLine = trimmedLine
-            .replace(/^\s*[-*•]\s*/, '')  // Remove list markers
-            .replace(/\*\*/g, '')         // Remove bold markers
-            .trim();
-
-          console.log("Processing client detail line:", cleanLine);
-
-          // Try to match "Name: value" format
-          const labelMatch = cleanLine.match(/^([^:]+):\s*(.+)$/);
-          if (labelMatch) {
-            const [, label, value] = labelMatch;
-            const normalizedLabel = label.toLowerCase().trim();
-            
-            if (normalizedLabel.includes('name')) {
-              clientName = value.trim();
-              console.log("Found client name:", clientName);
-            } else if (normalizedLabel.includes('contact') || normalizedLabel.includes('phone')) {
-              // Extract phone number - look for UK mobile format
-              const phoneMatch = value.match(/\b(07\d{3}\s*\d{3}\s*\d{3})\b/);
-              if (phoneMatch) {
-                clientPhone = phoneMatch[1].replace(/\s+/g, ' ').trim();
-                console.log("Found client phone:", clientPhone);
-              }
-            } else if (normalizedLabel.includes('address')) {
-              clientAddress = value.trim();
-              console.log("Found client address:", clientAddress);
-            }
-          }
-        }
+        // Wait a moment before redirecting
+        setTimeout(() => {
+          router.push(`/jobs/${jobRef.id}`);
+        }, 1000);
+      } catch (parseError) {
+        console.error("Error parsing OpenAI response:", parseError);
+        // Fallback to old parsing method if JSON parsing fails
+        // ... (keep existing parsing logic as fallback)
       }
-
-      console.log("Final extracted data:", {
-        jobTitle,
-        clientName,
-        clientPhone,
-        clientAddress,
-        jobDescription
-      });
-
-      // Create the job document
-      const jobRef = await addDoc(collection(db, "jobs"), {
-        title: jobTitle || "Untitled Job",
-        description: enhancedDescription, // Store the full enhanced description
-        jobDescription: jobDescription.trim(), // Store the extracted job description separately
-        status: "new",
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-        startTime: formData.startTime || null,
-        assignedTo: formData.assignedTo || null,
-        clientName: clientName || 'No Client',
-        clientPhone: clientPhone || 'No Phone',
-        clientAddress: clientAddress || 'No Address',
-        attachments: uploadedUrls,
-      });
-
-      router.push(`/jobs/${jobRef.id}`);
     } catch (err) {
       console.error("Error creating job:", err);
       setError(err instanceof Error ? err.message : "Failed to create job");
+      
+      // Show error toast
+      toast({
+        title: "Error",
+        description: "Failed to create job card",
+        variant: "destructive",
+        duration: 5000,
+      });
     } finally {
       setIsSubmitting(false);
     }

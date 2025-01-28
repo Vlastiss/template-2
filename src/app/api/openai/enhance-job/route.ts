@@ -24,19 +24,38 @@ export async function POST(req: Request) {
       messages: [
         {
           role: 'system',
-          content: `Format the job information into these sections, starting with a clear and concise job title:
-- Job Title/Name (create a descriptive title based on the job details or adress)
-- Client Details (name, contact, address)
-- Job Description
-- Job Timeline/Deadline
+          content: `You are a job processing assistant. Your task is to analyze the input text and return a structured JSON object containing all the relevant job information.
 
-Make the Job Title descriptive and professional, summarizing the main task.
+Return the data in this exact format:
+{
+  "jobTitle": "A clear, descriptive title summarizing the main task",
+  "clientName": "Full name of the client",
+  "clientEmail": "Client's email address",
+  "clientPhone": "Client's phone number",
+  "clientAddress": "Complete address",
+  "jobDescription": "A clear description of the main tasks",
+  "fullDescription": "The complete formatted job description in markdown",
+  "timeline": {
+    "startDate": "Proposed start date or null",
+    "completionDate": "Expected completion date or null",
+    "estimatedDuration": "Estimated duration in days"
+  },
+  "requiredTools": [
+    "List of required tools and materials"
+  ],
+  "instructions": [
+    "Step by step instructions for completing the job"
+  ]
+}
 
-Bassed on the Job Description, create a timeline/deadline for the job.
-
-Bassed on the Job Description, create a list of required tools/materials for the job.
-
-also Bassed on the Job Description, create a list of instructions on how to complete the job.`
+Make sure to:
+1. Create a descriptive and professional job title based on the main tasks
+2. Extract or infer client details from the input
+3. Structure the job description clearly
+4. Propose reasonable timeline/deadline if not specified
+5. List all necessary tools and materials based on the tasks
+6. Break down the job into clear step-by-step instructions
+7. Return ONLY valid JSON that matches the exact format above`
         },
         {
           role: 'user',
