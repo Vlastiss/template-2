@@ -246,7 +246,7 @@ export default function JobDetailsPage() {
       <div className="max-w-3xl mx-auto">
         <div className="flex justify-between items-start mb-6">
           <div>
-            <h1 className="text-2xl font-bold text-gray-900 mb-2">{job.title || "Untitled Job"}</h1>
+            <h1 className="text-2xl font-bold text-gray-100 mb-2">{job.title || "Untitled Job"}</h1>
             <div className="flex items-center gap-3">
               <span className={`px-2 py-1 text-xs font-semibold rounded-full ${getStatusColor(job.status)}`}>
                 {job.status}
@@ -255,41 +255,42 @@ export default function JobDetailsPage() {
           </div>
           
           <Button
-            variant="ghost"
+            variant="outline"
             onClick={() => router.back()}
+            className="border-gray-800 hover:bg-gray-800/50"
           >
             Back
           </Button>
         </div>
 
-        <div className="bg-white shadow-sm rounded-lg border p-6 space-y-6">
+        <div className="bg-gray-900/50 shadow-lg rounded-lg border border-gray-800 p-6 space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
-              <h3 className="text-sm font-medium text-gray-500">Client Information</h3>
+              <h3 className="text-sm font-medium text-gray-400">Client Information</h3>
               <div className="mt-2 space-y-2">
-                <p className="text-gray-900">{job.clientName || "No client name"}</p>
-                <p className="text-gray-600">{job.clientContact || "No contact info"}</p>
-                <p className="text-gray-600">{job.clientAddress || "No address"}</p>
+                <p className="text-gray-100">{job.clientName || "No client name"}</p>
+                <p className="text-gray-400">{job.clientContact || "No contact info"}</p>
+                <p className="text-gray-400">{job.clientAddress || "No address"}</p>
               </div>
             </div>
 
             <div>
-              <h3 className="text-sm font-medium text-gray-500">Schedule</h3>
+              <h3 className="text-sm font-medium text-gray-400">Schedule</h3>
               <div className="mt-2 space-y-2">
-                <p className="text-gray-900">Start: {job.startTime ? new Date(job.startTime).toLocaleString() : "Not set"}</p>
-                <p className="text-gray-600">Assigned to: {job.assignedTo || "Not assigned"}</p>
+                <p className="text-gray-100">Start: {job.startTime ? new Date(job.startTime).toLocaleString() : "Not set"}</p>
+                <p className="text-gray-400">Assigned to: {job.assignedTo || "Not assigned"}</p>
               </div>
             </div>
           </div>
 
           <div>
-            <h3 className="text-sm font-medium text-gray-500">Description</h3>
-            <p className="mt-2 text-gray-900 whitespace-pre-wrap">{job.description}</p>
+            <h3 className="text-sm font-medium text-gray-400">Description</h3>
+            <p className="mt-2 text-gray-200 whitespace-pre-wrap">{job.description}</p>
           </div>
 
           {job.attachments && job.attachments.length > 0 && (
             <div>
-              <h3 className="text-sm font-medium text-gray-500 mb-3">Attachments</h3>
+              <h3 className="text-sm font-medium text-gray-400 mb-3">Attachments</h3>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 {job.attachments.map((url) => (
                   <FilePreview
@@ -303,38 +304,42 @@ export default function JobDetailsPage() {
           )}
 
           {user?.email?.includes("admin") && (
-            <div className="pt-4 border-t">
-              <h3 className="text-sm font-medium text-gray-500 mb-3">Update Status</h3>
+            <div className="pt-4 border-t border-gray-800">
+              <h3 className="text-sm font-medium text-gray-400 mb-3">Update Status</h3>
               <div className="flex flex-wrap gap-3">
                 <Button
                   size="sm"
-                  variant={job.status === "new" ? "default" : "ghost"}
+                  variant={job.status === "new" ? "default" : "outline"}
                   onClick={() => updateJobStatus("new")}
                   disabled={updating || job.status === "new"}
+                  className={job.status !== "new" ? "border-gray-800 hover:bg-gray-800/50" : ""}
                 >
                   New
                 </Button>
                 <Button
                   size="sm"
-                  variant={job.status === "assigned" ? "default" : "ghost"}
+                  variant={job.status === "assigned" ? "default" : "outline"}
                   onClick={() => updateJobStatus("assigned")}
                   disabled={updating || job.status === "assigned"}
+                  className={job.status !== "assigned" ? "border-gray-800 hover:bg-gray-800/50" : ""}
                 >
                   Assigned
                 </Button>
                 <Button
                   size="sm"
-                  variant={job.status === "in progress" ? "default" : "ghost"}
+                  variant={job.status === "in progress" ? "default" : "outline"}
                   onClick={() => updateJobStatus("in progress")}
                   disabled={updating || job.status === "in progress"}
+                  className={job.status !== "in progress" ? "border-gray-800 hover:bg-gray-800/50" : ""}
                 >
                   In Progress
                 </Button>
                 <Button
                   size="sm"
-                  variant={job.status === "completed" ? "default" : "ghost"}
+                  variant={job.status === "completed" ? "default" : "outline"}
                   onClick={() => updateJobStatus("completed")}
                   disabled={updating || job.status === "completed"}
+                  className={job.status !== "completed" ? "border-gray-800 hover:bg-gray-800/50" : ""}
                 >
                   Completed
                 </Button>
@@ -342,7 +347,7 @@ export default function JobDetailsPage() {
             </div>
           )}
 
-          <div className="text-sm text-gray-500 pt-4 border-t">
+          <div className="text-sm text-gray-400 pt-4 border-t border-gray-800">
             <p>Created: {job.createdAt?.toDate ? formatDate(job.createdAt.toDate()) : "N/A"}</p>
             <p>Last Updated: {job.updatedAt?.toDate ? formatDate(job.updatedAt.toDate()) : "N/A"}</p>
           </div>
@@ -350,28 +355,28 @@ export default function JobDetailsPage() {
       </div>
 
       <Dialog open={!!selectedFile} onOpenChange={(open) => !open && setSelectedFile(null)}>
-        <DialogContent className="max-w-4xl">
+        <DialogContent className="max-w-4xl bg-gray-900 border border-gray-800">
           <DialogHeader>
-            <DialogTitle>File Preview</DialogTitle>
+            <DialogTitle className="text-gray-100">File Preview</DialogTitle>
             <DialogDescription>
               <a 
                 href={selectedFile || ''} 
                 target="_blank" 
                 rel="noopener noreferrer"
-                className="text-sm text-blue-500 hover:underline"
+                className="text-sm text-blue-400 hover:text-blue-300 hover:underline"
               >
                 Open original
               </a>
             </DialogDescription>
           </DialogHeader>
-          <div className="relative w-full bg-black/5 rounded-lg overflow-hidden">
+          <div className="relative w-full bg-gray-800/50 rounded-lg overflow-hidden">
             {selectedFile && (() => {
               const fileType = getFileType(selectedFile);
               
               switch (fileType) {
                 case 'video':
                   return (
-                    <div className="aspect-video">
+                    <div className="aspect-video bg-black">
                       <video
                         src={selectedFile}
                         controls
@@ -405,13 +410,13 @@ export default function JobDetailsPage() {
                 default:
                   return (
                     <div className="p-8 text-center">
-                      <FileText className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-                      <p className="text-gray-600">Preview not available</p>
+                      <FileText className="w-12 h-12 text-gray-500 mx-auto mb-4" />
+                      <p className="text-gray-400">Preview not available</p>
                       <a 
                         href={selectedFile} 
                         target="_blank" 
                         rel="noopener noreferrer"
-                        className="mt-4 inline-block text-blue-500 hover:underline"
+                        className="mt-4 inline-block text-blue-400 hover:text-blue-300 hover:underline"
                       >
                         Download file
                       </a>
@@ -429,14 +434,14 @@ export default function JobDetailsPage() {
 const getStatusColor = (status: string) => {
   switch (status.toLowerCase()) {
     case "completed":
-      return "bg-green-100 text-green-800";
+      return "bg-green-900/30 text-green-400";
     case "in progress":
-      return "bg-blue-100 text-blue-800";
+      return "bg-blue-900/30 text-blue-400";
     case "assigned":
-      return "bg-purple-100 text-purple-800";
+      return "bg-purple-900/30 text-purple-400";
     case "new":
-      return "bg-gray-100 text-gray-800";
+      return "bg-gray-800/50 text-gray-300";
     default:
-      return "bg-gray-100 text-gray-800";
+      return "bg-gray-800/50 text-gray-300";
   }
 }; 
