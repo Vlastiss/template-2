@@ -74,9 +74,23 @@ export default function NewJobPage() {
     setError("");
 
     try {
-      // First, upload any attachments
-      const uploadedUrls: string[] = [];
+      // Create a temporary ID for the loading state
+      const tempId = `temp-${Date.now()}`;
       
+      // Add the temp ID to localStorage so it persists across page navigation
+      localStorage.setItem('tempJobId', tempId);
+      
+      // Show loading toast
+      toast({
+        title: "Creating job...",
+        description: "Your job is being created in the background",
+      });
+
+      // Redirect to jobs page immediately
+      router.push('/jobs');
+
+      // Upload attachments in the background
+      const uploadedUrls: string[] = [];
       if (formData.attachments.length > 0) {
         for (const file of formData.attachments) {
           const fileRef = storageRef(storage, `jobs/${Date.now()}-${file.name}`);
@@ -86,23 +100,21 @@ export default function NewJobPage() {
         }
       }
 
-      // Format the description using OpenAI
+      // Get enhanced description from OpenAI
       const enhancedDescription = await enhanceJobDescription(formData.description);
       if (!enhancedDescription) {
         throw new Error("Failed to enhance job description");
       }
 
-      console.log("Enhanced description:", enhancedDescription);
-
       try {
         // Parse the JSON response from OpenAI
         const parsedData = JSON.parse(enhancedDescription);
-        console.log("Parsed OpenAI response:", parsedData);
 
         // Create the job document with the structured data
         const jobData = {
-          title: parsedData.jobTitle || "Untitled Job",
-          description: parsedData.fullDescription || formData.description,
+          title: parsedData.jobTitle || formData.title || 'Untitled Job',
+          description: formData.description,
+          enhancedDescription: parsedData.fullDescription || formData.description,
           jobDescription: parsedData.jobDescription || '',
           status: "new",
           createdAt: serverTimestamp(),
@@ -114,45 +126,54 @@ export default function NewJobPage() {
           clientEmail: parsedData.clientEmail || '',
           clientAddress: parsedData.clientAddress || 'No Address',
           attachments: uploadedUrls,
-          // Additional structured fields from OpenAI
           timeline: parsedData.timeline || {},
           requiredTools: parsedData.requiredTools || [],
           instructions: parsedData.instructions || [],
           estimatedDuration: parsedData.estimatedDuration || null,
         };
 
-        console.log("Job data before save:", jobData);
-        
-        const jobRef = await addDoc(collection(db, "jobs"), jobData);
-        console.log("Saved job data with ID:", jobRef.id);
+        // Create the actual job
+        await addDoc(collection(db, "jobs"), jobData);
+
+        // Remove the temp ID from localStorage
+        localStorage.removeItem('tempJobId');
 
         // Show success toast
         toast({
           title: "Success",
           description: "Job created successfully",
-          variant: "default",
-          duration: 3000,
         });
-
-        // Wait a moment before redirecting
-        setTimeout(() => {
-          router.push(`/jobs/${jobRef.id}`);
-        }, 1000);
       } catch (parseError) {
         console.error("Error parsing OpenAI response:", parseError);
-        // Fallback to old parsing method if JSON parsing fails
-        // ... (keep existing parsing logic as fallback)
+        // Fallback to basic job creation
+        const jobData = {
+          title: formData.title || 'Untitled Job',
+          description: formData.description,
+          status: "new",
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+          startTime: formData.startTime || null,
+          assignedTo: formData.assignedTo || null,
+          attachments: uploadedUrls,
+        };
+
+        await addDoc(collection(db, "jobs"), jobData);
+        localStorage.removeItem('tempJobId');
+        
+        toast({
+          title: "Success",
+          description: "Job created successfully (without AI enhancement)",
+        });
       }
-    } catch (err) {
-      console.error("Error creating job:", err);
-      setError(err instanceof Error ? err.message : "Failed to create job");
+    } catch (error) {
+      console.error('Error creating job:', error);
+      // Remove the temp ID if there was an error
+      localStorage.removeItem('tempJobId');
       
-      // Show error toast
       toast({
         title: "Error",
-        description: "Failed to create job card",
+        description: "Failed to create job. Please try again.",
         variant: "destructive",
-        duration: 5000,
       });
     } finally {
       setIsSubmitting(false);

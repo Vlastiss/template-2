@@ -54,6 +54,8 @@ interface Job {
   feedback?: string;
   attachments?: string[];
   feedbackAttachments?: string[];
+  isLoading?: boolean;
+  tempId?: string;
 }
 
 const getPriorityColor = (priority: string | undefined) => {
@@ -269,6 +271,25 @@ export default function JobsPage() {
   const [completionFeedback, setCompletionFeedback] = useState("");
   const [feedbackAttachments, setFeedbackAttachments] = useState<string[]>([]);
   const [isUploading, setIsUploading] = useState(false);
+  const [tempJobId, setTempJobId] = useState<string | null>(null);
+
+  // Check for temp job ID on mount and when localStorage changes
+  useEffect(() => {
+    const checkTempJob = () => {
+      const tempId = localStorage.getItem('tempJobId');
+      setTempJobId(tempId);
+    };
+
+    // Check on mount
+    checkTempJob();
+
+    // Listen for storage changes
+    window.addEventListener('storage', checkTempJob);
+    
+    return () => {
+      window.removeEventListener('storage', checkTempJob);
+    };
+  }, []);
 
   const handleOpenCompletionDialog = (jobId: string, jobTitle: string) => {
     setCompletionDialog({ isOpen: true, jobId, jobTitle });
@@ -445,6 +466,7 @@ export default function JobsPage() {
           feedback: data.feedback || '',
           attachments: Array.isArray(data.attachments) ? data.attachments : [],
           feedbackAttachments: Array.isArray(data.feedbackAttachments) ? data.feedbackAttachments : [],
+          isLoading: false
         } as Job;
       });
 
@@ -453,12 +475,30 @@ export default function JobsPage() {
         ? jobsData 
         : jobsData.filter(job => job.assignedTo === user?.email);
       
-      setJobs(filteredJobs);
+      // Add loading job if we have a temp job
+      const allJobs = [...filteredJobs];
+      if (tempJobId) {
+        allJobs.unshift({
+          id: tempJobId,
+          title: 'Creating new job...',
+          clientName: 'Processing...',
+          clientPhone: 'Processing...',
+          clientAddress: 'Processing...',
+          status: 'new',
+          startTime: null,
+          createdAt: null,
+          updatedAt: null,
+          isLoading: true,
+          tempId: tempJobId
+        });
+      }
+
+      setJobs(allJobs);
       setLoading(false);
     });
 
     return () => unsubscribe();
-  }, [isAdmin, user?.email]);
+  }, [isAdmin, user?.email, tempJobId]);
 
   const columns = [
     {
@@ -490,7 +530,13 @@ export default function JobsPage() {
       header: "Job Title",
       accessorKey: "title",
       cell: ({ row }: { row: Row<Job> }) => (
-        <div className="font-medium">{row.original.title || 'Untitled Job'}</div>
+        <div className="font-medium">
+          {row.original.isLoading ? (
+            <div className="h-6 bg-gray-700/50 animate-pulse rounded w-48" />
+          ) : (
+            row.original.title
+          )}
+        </div>
       ),
     },
     {
@@ -534,8 +580,17 @@ export default function JobsPage() {
       accessorKey: "clientName",
       cell: ({ row }: { row: Row<Job> }) => (
         <div>
-          <div className="font-medium">{row.original.clientName || 'No Client'}</div>
-          <div className="text-sm text-gray-500">{row.original.clientAddress || 'No Address'}</div>
+          {row.original.isLoading ? (
+            <div className="space-y-2">
+              <div className="h-5 bg-gray-700/50 animate-pulse rounded w-32" />
+              <div className="h-4 bg-gray-700/50 animate-pulse rounded w-40" />
+            </div>
+          ) : (
+            <>
+              <div className="font-medium">{row.original.clientName}</div>
+              <div className="text-sm text-gray-500">{row.original.clientAddress}</div>
+            </>
+          )}
         </div>
       ),
     },
@@ -543,7 +598,13 @@ export default function JobsPage() {
       header: "Phone",
       accessorKey: "clientPhone",
       cell: ({ row }: { row: Row<Job> }) => (
-        <div className="font-medium">{row.original.clientPhone || 'No Phone'}</div>
+        <div className="font-medium">
+          {row.original.isLoading ? (
+            <div className="h-5 bg-gray-700/50 animate-pulse rounded w-28" />
+          ) : (
+            row.original.clientPhone
+          )}
+        </div>
       ),
     },
     {
@@ -551,13 +612,19 @@ export default function JobsPage() {
       accessorKey: "status",
       cell: ({ row }: { row: Row<Job> }) => (
         <div className="flex items-center">
-          <span className={cn(
-            "rounded-full w-2 h-2 mr-2",
-            row.original.status === "completed" && "bg-green-500",
-            row.original.status === "in-progress" && "bg-yellow-500",
-            row.original.status === "pending" && "bg-gray-500"
-          )} />
-          <span className="capitalize">{row.original.status || 'pending'}</span>
+          {row.original.isLoading ? (
+            <div className="h-5 bg-gray-700/50 animate-pulse rounded w-20" />
+          ) : (
+            <>
+              <span className={cn(
+                "rounded-full w-2 h-2 mr-2",
+                row.original.status === "completed" && "bg-green-500",
+                row.original.status === "in-progress" && "bg-yellow-500",
+                row.original.status === "pending" && "bg-gray-500"
+              )} />
+              <span className="capitalize">{row.original.status}</span>
+            </>
+          )}
         </div>
       ),
     },
