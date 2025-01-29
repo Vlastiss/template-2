@@ -7,14 +7,23 @@ import { db } from "@/lib/firebase/firebase";
 import { useAuth } from "@/lib/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { formatDate } from "@/lib/utils";
-import { FileText, Download } from "lucide-react";
+import { FileText, Download, Upload } from "lucide-react";
 import {
   Dialog,
   DialogContent,
   DialogDescription,
   DialogHeader,
   DialogTitle,
+  DialogFooter,
 } from "@/components/ui/dialog";
+import {
+  Carousel,
+  CarouselContent,
+  CarouselItem,
+  CarouselNext,
+  CarouselPrevious,
+} from "@/components/ui/carousel";
+import { uploadFile } from "@/lib/firebase/firebaseUtils";
 import { cn } from "@/lib/utils";
 
 interface Job {
@@ -28,6 +37,8 @@ interface Job {
   assignedTo: string;
   startTime: string;
   attachments: string[];
+  feedback?: string;
+  feedbackAttachments?: string[];
   createdAt: any;
   updatedAt: any;
 }
@@ -89,6 +100,21 @@ const FilePreview = ({ url, onClick }: { url: string; onClick: () => void }) => 
   );
 };
 
+const getStatusColor = (status: string) => {
+  switch (status.toLowerCase()) {
+    case "completed":
+      return "bg-green-900/30 text-green-400";
+    case "in progress":
+      return "bg-blue-900/30 text-blue-400";
+    case "assigned":
+      return "bg-purple-900/30 text-purple-400";
+    case "new":
+      return "bg-gray-800/50 text-gray-300";
+    default:
+      return "bg-gray-800/50 text-gray-300";
+  }
+};
+
 export default function JobDetailsPage() {
   const [job, setJob] = useState<Job | null>(null);
   const [loading, setLoading] = useState(true);
@@ -98,6 +124,11 @@ export default function JobDetailsPage() {
   const router = useRouter();
   const { user } = useAuth();
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
+  const [showCompletionDialog, setShowCompletionDialog] = useState(false);
+  const [completionNotes, setCompletionNotes] = useState("");
+  const [completionAttachments, setCompletionAttachments] = useState<string[]>([]);
+  const [uploadingFiles, setUploadingFiles] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Function to extract client information from description
   const extractClientInfo = (description: string) => {
@@ -170,8 +201,8 @@ export default function JobDetailsPage() {
         if (jobDoc.exists()) {
           const jobData = jobDoc.data();
           console.log('Raw job data:', jobData);
+          
           const clientInfo = extractClientInfo(jobData.description);
-          console.log('Extracted client info:', clientInfo);
           
           const newJob = {
             id: jobDoc.id,
@@ -179,10 +210,19 @@ export default function JobDetailsPage() {
             clientName: jobData.clientName || clientInfo.clientName,
             clientContact: jobData.clientPhone || clientInfo.clientContact,
             clientAddress: jobData.clientAddress || clientInfo.clientAddress,
-            description: clientInfo.jobDescription || jobData.description || ''
+            description: clientInfo.jobDescription || jobData.description || '',
+            attachments: jobData.attachments || [],
+            feedback: jobData.feedback || '',
+            feedbackAttachments: jobData.feedbackAttachments || []
           } as Job;
           
-          console.log('Setting job state:', newJob);
+          console.log('Processed job data:', {
+            status: newJob.status,
+            attachments: newJob.attachments,
+            feedback: newJob.feedback,
+            feedbackAttachments: newJob.feedbackAttachments
+          });
+          
           setJob(newJob);
         } else {
           setError("Job not found");
@@ -198,23 +238,70 @@ export default function JobDetailsPage() {
     fetchJob();
   }, [params.id]);
 
-  const updateJobStatus = async (newStatus: string) => {
+  const updateJobStatus = async (newStatus: string, completionData?: { notes: string, attachments: string[] }) => {
     if (!job) return;
     
     setUpdating(true);
     try {
       const jobRef = doc(db, "jobs", job.id);
-      await updateDoc(jobRef, {
+      const updateData: any = {
         status: newStatus,
         updatedAt: new Date(),
-      });
-      setJob(prev => prev ? { ...prev, status: newStatus } : null);
+      };
+
+      if (newStatus === 'completed' && completionData) {
+        updateData.feedback = completionData.notes;
+        updateData.feedbackAttachments = completionData.attachments || [];
+        console.log('Setting feedback data:', updateData);
+      }
+
+      await updateDoc(jobRef, updateData);
+      const updatedJob = { ...job, ...updateData };
+      console.log('Updated job:', updatedJob);
+      setJob(updatedJob);
     } catch (err) {
       console.error("Error updating job status:", err);
       setError("Failed to update job status");
     } finally {
       setUpdating(false);
     }
+  };
+
+  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = event.target.files;
+    if (!files || !job) return;
+
+    setUploadingFiles(true);
+    try {
+      const uploadPromises = Array.from(files).map(file =>
+        uploadFile(file, `jobs/${job.id}/completion/${file.name}`)
+      );
+      const urls = await Promise.all(uploadPromises);
+      setCompletionAttachments(prev => [...prev, ...urls]);
+    } catch (err) {
+      console.error("Error uploading files:", err);
+      setError("Failed to upload files");
+    } finally {
+      setUploadingFiles(false);
+    }
+  };
+
+  const handleComplete = async () => {
+    if (!completionNotes.trim()) {
+      setError("Please provide completion notes");
+      return;
+    }
+
+    console.log('Completing job with:', {
+      notes: completionNotes,
+      attachments: completionAttachments
+    });
+
+    await updateJobStatus("completed", {
+      notes: completionNotes,
+      attachments: completionAttachments
+    });
+    setShowCompletionDialog(false);
   };
 
   if (loading) {
@@ -263,95 +350,231 @@ export default function JobDetailsPage() {
           </Button>
         </div>
 
-        <div className="bg-gray-900/50 shadow-lg rounded-lg border border-gray-800 p-6 space-y-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div>
-              <h3 className="text-sm font-medium text-gray-400">Client Information</h3>
-              <div className="mt-2 space-y-2">
-                <p className="text-gray-100">{job.clientName || "No client name"}</p>
-                <p className="text-gray-400">{job.clientContact || "No contact info"}</p>
-                <p className="text-gray-400">{job.clientAddress || "No address"}</p>
-              </div>
-            </div>
+        <Carousel className="w-full">
+          <CarouselContent>
+            {/* First Slide: Original Job Details */}
+            <CarouselItem>
+              <div className="bg-gray-900/50 shadow-lg rounded-lg border border-gray-800 p-6 space-y-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div>
+                    <h3 className="text-sm font-medium text-gray-400">Client Information</h3>
+                    <div className="mt-2 space-y-2">
+                      <p className="text-gray-100">{job.clientName || "No client name"}</p>
+                      <p className="text-gray-400">{job.clientContact || "No contact info"}</p>
+                      <p className="text-gray-400">{job.clientAddress || "No address"}</p>
+                    </div>
+                  </div>
 
-            <div>
-              <h3 className="text-sm font-medium text-gray-400">Schedule</h3>
-              <div className="mt-2 space-y-2">
-                <p className="text-gray-100">Start: {job.startTime ? new Date(job.startTime).toLocaleString() : "Not set"}</p>
-                <p className="text-gray-400">Assigned to: {job.assignedTo || "Not assigned"}</p>
+                  <div>
+                    <h3 className="text-sm font-medium text-gray-400">Schedule</h3>
+                    <div className="mt-2 space-y-2">
+                      <p className="text-gray-100">Start: {job.startTime ? new Date(job.startTime).toLocaleString() : "Not set"}</p>
+                      <p className="text-gray-400">Assigned to: {job.assignedTo || "Not assigned"}</p>
+                    </div>
+                  </div>
+                </div>
+
+                <div>
+                  <h3 className="text-sm font-medium text-gray-400">Description</h3>
+                  <p className="mt-2 text-gray-200 whitespace-pre-wrap">{job.description}</p>
+                </div>
+
+                {job.attachments && job.attachments.length > 0 && (
+                  <div>
+                    <h3 className="text-sm font-medium text-gray-400 mb-3">Original Attachments</h3>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      {job.attachments.map((url) => (
+                        <FilePreview
+                          key={url}
+                          url={url}
+                          onClick={() => setSelectedFile(url)}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <div className="text-sm text-gray-400 pt-4 border-t border-gray-800">
+                  <p>Created: {job.createdAt?.toDate ? formatDate(job.createdAt.toDate()) : "N/A"}</p>
+                  <p>Last Updated: {job.updatedAt?.toDate ? formatDate(job.updatedAt.toDate()) : "N/A"}</p>
+                </div>
               </div>
+            </CarouselItem>
+
+            {/* Second Slide: Completion Feedback */}
+            <CarouselItem>
+              <div className="bg-gray-900/50 shadow-lg rounded-lg border border-gray-800 p-6 space-y-6">
+                <div className="flex items-center justify-between mb-6">
+                  <h2 className="text-xl font-bold text-gray-100">Completion Details</h2>
+                  <span className={`px-3 py-1 rounded-full text-sm font-medium ${getStatusColor(job.status)}`}>
+                    {job.status}
+                  </span>
+                </div>
+
+                {job.status === "completed" ? (
+                  <>
+                    {job.feedback ? (
+                      <>
+                        <div className="bg-gray-800/50 rounded-lg p-6">
+                          <h3 className="text-lg font-medium text-gray-200 mb-4">Completion Notes</h3>
+                          <p className="text-gray-300 whitespace-pre-wrap">{job.feedback}</p>
+                        </div>
+
+                        {job.feedbackAttachments && job.feedbackAttachments.length > 0 && (
+                          <div className="mt-6">
+                            <h3 className="text-lg font-medium text-gray-200 mb-4">Completion Attachments</h3>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                              {job.feedbackAttachments.map((url) => (
+                                <FilePreview
+                                  key={url}
+                                  url={url}
+                                  onClick={() => setSelectedFile(url)}
+                                />
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </>
+                    ) : (
+                      <div className="text-center py-12">
+                        <p className="text-gray-400">This job is marked as completed but no completion feedback was provided.</p>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <div className="text-center py-12">
+                    <p className="text-gray-400">This job has not been completed yet.</p>
+                    {!user?.email?.includes("admin") && (
+                      <Button
+                        onClick={() => setShowCompletionDialog(true)}
+                        className="mt-4"
+                        disabled={updating}
+                      >
+                        Mark as Complete
+                      </Button>
+                    )}
+                  </div>
+                )}
+              </div>
+            </CarouselItem>
+          </CarouselContent>
+          <CarouselPrevious className="left-4" />
+          <CarouselNext className="right-4" />
+        </Carousel>
+
+        {/* Admin Status Controls */}
+        {user?.email?.includes("admin") && (
+          <div className="mt-6 p-6 bg-gray-900/50 shadow-lg rounded-lg border border-gray-800">
+            <h3 className="text-sm font-medium text-gray-400 mb-3">Update Status</h3>
+            <div className="flex flex-wrap gap-3">
+              <Button
+                size="sm"
+                variant={job.status === "new" ? "default" : "outline"}
+                onClick={() => updateJobStatus("new")}
+                disabled={updating || job.status === "new"}
+                className={job.status !== "new" ? "border-gray-800 hover:bg-gray-800/50" : ""}
+              >
+                New
+              </Button>
+              <Button
+                size="sm"
+                variant={job.status === "assigned" ? "default" : "outline"}
+                onClick={() => updateJobStatus("assigned")}
+                disabled={updating || job.status === "assigned"}
+                className={job.status !== "assigned" ? "border-gray-800 hover:bg-gray-800/50" : ""}
+              >
+                Assigned
+              </Button>
+              <Button
+                size="sm"
+                variant={job.status === "in progress" ? "default" : "outline"}
+                onClick={() => updateJobStatus("in progress")}
+                disabled={updating || job.status === "in progress"}
+                className={job.status !== "in progress" ? "border-gray-800 hover:bg-gray-800/50" : ""}
+              >
+                In Progress
+              </Button>
+              <Button
+                size="sm"
+                variant={job.status === "completed" ? "default" : "outline"}
+                onClick={() => updateJobStatus("completed")}
+                disabled={updating || job.status === "completed"}
+                className={job.status !== "completed" ? "border-gray-800 hover:bg-gray-800/50" : ""}
+              >
+                Completed
+              </Button>
             </div>
           </div>
+        )}
 
-          <div>
-            <h3 className="text-sm font-medium text-gray-400">Description</h3>
-            <p className="mt-2 text-gray-200 whitespace-pre-wrap">{job.description}</p>
-          </div>
-
-          {job.attachments && job.attachments.length > 0 && (
-            <div>
-              <h3 className="text-sm font-medium text-gray-400 mb-3">Attachments</h3>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {job.attachments.map((url) => (
-                  <FilePreview
-                    key={url}
-                    url={url}
-                    onClick={() => setSelectedFile(url)}
-                  />
-                ))}
-              </div>
-            </div>
-          )}
-
-          {user?.email?.includes("admin") && (
-            <div className="pt-4 border-t border-gray-800">
-              <h3 className="text-sm font-medium text-gray-400 mb-3">Update Status</h3>
-              <div className="flex flex-wrap gap-3">
+        <Dialog open={showCompletionDialog} onOpenChange={setShowCompletionDialog}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Complete Job</DialogTitle>
+              <DialogDescription>
+                Add completion notes and any relevant attachments
+              </DialogDescription>
+            </DialogHeader>
+            
+            <div className="space-y-4">
+              <textarea
+                className="w-full min-h-[100px] p-3 rounded-md bg-gray-700 text-gray-100 border border-gray-600"
+                placeholder="Enter completion notes..."
+                value={completionNotes}
+                onChange={(e) => setCompletionNotes(e.target.value)}
+              />
+              
+              <div>
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  className="hidden"
+                  multiple
+                  onChange={handleFileUpload}
+                />
                 <Button
-                  size="sm"
-                  variant={job.status === "new" ? "default" : "outline"}
-                  onClick={() => updateJobStatus("new")}
-                  disabled={updating || job.status === "new"}
-                  className={job.status !== "new" ? "border-gray-800 hover:bg-gray-800/50" : ""}
+                  type="button"
+                  variant="outline"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={uploadingFiles}
+                  className="w-full"
                 >
-                  New
-                </Button>
-                <Button
-                  size="sm"
-                  variant={job.status === "assigned" ? "default" : "outline"}
-                  onClick={() => updateJobStatus("assigned")}
-                  disabled={updating || job.status === "assigned"}
-                  className={job.status !== "assigned" ? "border-gray-800 hover:bg-gray-800/50" : ""}
-                >
-                  Assigned
-                </Button>
-                <Button
-                  size="sm"
-                  variant={job.status === "in progress" ? "default" : "outline"}
-                  onClick={() => updateJobStatus("in progress")}
-                  disabled={updating || job.status === "in progress"}
-                  className={job.status !== "in progress" ? "border-gray-800 hover:bg-gray-800/50" : ""}
-                >
-                  In Progress
-                </Button>
-                <Button
-                  size="sm"
-                  variant={job.status === "completed" ? "default" : "outline"}
-                  onClick={() => updateJobStatus("completed")}
-                  disabled={updating || job.status === "completed"}
-                  className={job.status !== "completed" ? "border-gray-800 hover:bg-gray-800/50" : ""}
-                >
-                  Completed
+                  <Upload className="w-4 h-4 mr-2" />
+                  {uploadingFiles ? "Uploading..." : "Upload Attachments"}
                 </Button>
               </div>
-            </div>
-          )}
 
-          <div className="text-sm text-gray-400 pt-4 border-t border-gray-800">
-            <p>Created: {job.createdAt?.toDate ? formatDate(job.createdAt.toDate()) : "N/A"}</p>
-            <p>Last Updated: {job.updatedAt?.toDate ? formatDate(job.updatedAt.toDate()) : "N/A"}</p>
-          </div>
-        </div>
+              {completionAttachments.length > 0 && (
+                <div className="grid grid-cols-2 gap-2">
+                  {completionAttachments.map((url, index) => (
+                    <FilePreview
+                      key={index}
+                      url={url}
+                      onClick={() => setSelectedFile(url)}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => setShowCompletionDialog(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                onClick={handleComplete}
+                disabled={!completionNotes || uploadingFiles}
+              >
+                Complete Job
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
 
       <Dialog open={!!selectedFile} onOpenChange={(open) => !open && setSelectedFile(null)}>
@@ -429,19 +652,4 @@ export default function JobDetailsPage() {
       </Dialog>
     </div>
   );
-}
-
-const getStatusColor = (status: string) => {
-  switch (status.toLowerCase()) {
-    case "completed":
-      return "bg-green-900/30 text-green-400";
-    case "in progress":
-      return "bg-blue-900/30 text-blue-400";
-    case "assigned":
-      return "bg-purple-900/30 text-purple-400";
-    case "new":
-      return "bg-gray-800/50 text-gray-300";
-    default:
-      return "bg-gray-800/50 text-gray-300";
-  }
-}; 
+} 
