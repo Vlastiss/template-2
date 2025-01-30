@@ -363,15 +363,36 @@ export default function JobDetailsPage() {
     if (!files || !job) return;
 
     setUploadingFiles(true);
+    setError(""); // Clear any previous errors
+    
     try {
-      const uploadPromises = Array.from(files).map(file =>
-        uploadFile(file, `jobs/${job.id}/completion/${file.name}`)
-      );
+      // First check if user has permission
+      if (!user) {
+        throw new Error("You must be logged in to upload files");
+      }
+      
+      if (!isAdmin && job.assignedTo !== user.email && job.status !== "new") {
+        throw new Error("You don't have permission to upload files to this job");
+      }
+
+      const uploadPromises = Array.from(files).map(async file => {
+        // Sanitize the filename
+        const sanitizedName = file.name.replace(/[^a-zA-Z0-9.-]/g, '_');
+        const path = `jobs/${job.id}/feedback/${sanitizedName}`;
+        
+        try {
+          return await uploadFile(file, path);
+        } catch (uploadErr: any) {
+          console.error(`Error uploading ${file.name}:`, uploadErr);
+          throw new Error(`Failed to upload ${file.name}: ${uploadErr.message}`);
+        }
+      });
+
       const urls = await Promise.all(uploadPromises);
       setCompletionAttachments(prev => [...prev, ...urls]);
-    } catch (err) {
+    } catch (err: any) {
       console.error("Error uploading files:", err);
-      setError("Failed to upload files");
+      setError(err.message || "Failed to upload files. Please try again.");
     } finally {
       setUploadingFiles(false);
     }
@@ -380,6 +401,11 @@ export default function JobDetailsPage() {
   const handleComplete = async () => {
     if (!completionNotes.trim()) {
       setError("Please provide completion notes");
+      return;
+    }
+
+    if (completionAttachments.length === 0) {
+      setError("Please upload at least one image showing the completed work");
       return;
     }
 
@@ -392,7 +418,6 @@ export default function JobDetailsPage() {
       notes: completionNotes,
       attachments: completionAttachments
     });
-    setShowCompletionDialog(false);
   };
 
   if (loading) {
