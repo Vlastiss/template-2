@@ -57,19 +57,10 @@ export default function Home() {
     
     const unsubscribe = onSnapshot(jobsQuery, (snapshot) => {
       console.log('Query snapshot size:', snapshot.size);
-      let jobsData = snapshot.docs.map(doc => {
-        const data = doc.data();
-        console.log('Job data:', {
-          id: doc.id,
-          assignedTo: data.assignedTo,
-          assignedToId: data.assignedToId,
-          ...data
-        });
-        return {
-          id: doc.id,
-          ...data
-        };
-      }) as Job[];
+      let jobsData = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      })) as Job[];
 
       // Sort in memory for employee view
       if (!isAdmin()) {
@@ -83,11 +74,12 @@ export default function Home() {
       console.log('Processed jobs:', jobsData);
       setJobs(jobsData);
 
-      // Calculate counts
+      // Updated counting logic to handle case variations
       const counts = jobsData.reduce((acc, job) => {
-        if (job.status === "completed") {
+        const status = job.status?.toLowerCase();
+        if (status === "completed") {
           acc.completed += 1;
-        } else if (job.status === "in progress" || job.status === "assigned") {
+        } else if (status === "in-progress" || status === "in progress" || status === "assigned") {
           acc.active += 1;
         } else {
           acc.pending += 1;

@@ -25,6 +25,7 @@ import {
 } from "@/components/ui/carousel";
 import { uploadFile } from "@/lib/firebase/firebaseUtils";
 import { cn } from "@/lib/utils";
+import { serverTimestamp } from "firebase/firestore";
 
 interface Job {
   id: string;
@@ -101,10 +102,11 @@ const FilePreview = ({ url, onClick }: { url: string; onClick: () => void }) => 
 };
 
 const getStatusColor = (status: string) => {
-  switch (status.toLowerCase()) {
+  switch (status?.toLowerCase()?.trim()) {
     case "completed":
       return "bg-green-900/30 text-green-400";
     case "in progress":
+    case "in-progress":  // Handle hyphenated version
       return "bg-blue-900/30 text-blue-400";
     case "assigned":
       return "bg-purple-900/30 text-purple-400";
@@ -115,11 +117,17 @@ const getStatusColor = (status: string) => {
   }
 };
 
+const normalizeStatus = (status: string): string => {
+  return status?.toLowerCase()?.trim() || "new";
+};
+
 export default function JobDetailsPage() {
   const [job, setJob] = useState<Job | null>(null);
   const [loading, setLoading] = useState(true);
   const [updating, setUpdating] = useState(false);
   const [error, setError] = useState("");
+  const [userRole, setUserRole] = useState<string | null>(null);
+  const [isAdmin, setIsAdmin] = useState<boolean>(false);
   const params = useParams();
   const router = useRouter();
   const { user } = useAuth();
@@ -129,6 +137,30 @@ export default function JobDetailsPage() {
   const [completionAttachments, setCompletionAttachments] = useState<string[]>([]);
   const [uploadingFiles, setUploadingFiles] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Add useEffect to load user role and check admin status
+  useEffect(() => {
+    const loadUserRole = async () => {
+      if (!user?.uid) return;
+      
+      try {
+        const userDoc = await getDoc(doc(db, "users", user.uid));
+        if (userDoc.exists()) {
+          const userData = userDoc.data();
+          const role = userData.role || null;
+          setUserRole(role);
+          setIsAdmin(role === "admin");
+          console.log('User role loaded:', role);
+          console.log('Is admin?', role === "admin");
+        }
+      } catch (err) {
+        console.error("Error loading user role:", err);
+        setError("Error loading user permissions");
+      }
+    };
+
+    loadUserRole();
+  }, [user?.uid]);
 
   // Function to extract client information from description
   const extractClientInfo = (description: string) => {
@@ -240,28 +272,87 @@ export default function JobDetailsPage() {
 
   const updateJobStatus = async (newStatus: string, completionData?: { notes: string, attachments: string[] }) => {
     if (!job) return;
+    if (!user) {
+      setError("You must be logged in to update job status");
+      return;
+    }
+    if (!userRole) {
+      setError("Unable to verify user permissions. Please try again.");
+      return;
+    }
     
     setUpdating(true);
+    setError("");  // Clear any previous errors
+    
     try {
       const jobRef = doc(db, "jobs", job.id);
-      const updateData: any = {
-        status: newStatus,
-        updatedAt: new Date(),
+      
+      // Check permissions using the loaded role
+      const canUpdate = isAdmin || 
+        (job.assignedTo === user.email) || 
+        (job.status === "new" && newStatus === "in progress");
+      
+      if (!canUpdate) {
+        setError("You don't have permission to update this job.");
+        return;
+      }
+      
+      // Normalize the status to a consistent format
+      const normalizedStatus = normalizeStatus(newStatus);
+      
+      // Create a properly typed update object for Firestore
+      const updateData: Record<string, any> = {
+        status: normalizedStatus,
+        updatedAt: serverTimestamp(),
+        updatedBy: user.email,
       };
 
-      if (newStatus === 'completed' && completionData) {
-        updateData.feedback = completionData.notes;
-        updateData.feedbackAttachments = completionData.attachments || [];
-        console.log('Setting feedback data:', updateData);
+      // If this is the first time the job is being accepted
+      if (normalizedStatus === "in progress" && job.status === "new") {
+        updateData.assignedTo = user.email;
       }
 
+      // Only add completion data if provided and status is completed
+      if (completionData && normalizedStatus === "completed") {
+        updateData.feedback = completionData.notes || "";
+        updateData.feedbackAttachments = completionData.attachments || [];
+        updateData.completedBy = user.email;
+        updateData.completedAt = serverTimestamp();
+      }
+
+      // If status is being set to "in progress" and no start time exists
+      if (normalizedStatus === "in progress" && !job.startTime) {
+        updateData.startTime = serverTimestamp();
+      }
+
+      // Update Firestore
       await updateDoc(jobRef, updateData);
-      const updatedJob = { ...job, ...updateData };
-      console.log('Updated job:', updatedJob);
-      setJob(updatedJob);
-    } catch (err) {
+      
+      // Update local state with current time since serverTimestamp isn't available client-side
+      const currentTime = new Date().toISOString();
+      setJob(prev => {
+        if (!prev) return null;
+        return {
+          ...prev,
+          ...updateData,
+          updatedAt: currentTime,
+          startTime: normalizedStatus === "in progress" && !prev.startTime ? currentTime : prev.startTime,
+          status: normalizedStatus,
+          assignedTo: updateData.assignedTo || prev.assignedTo
+        };
+      });
+      
+      // Close completion dialog if status is completed
+      if (normalizedStatus === "completed") {
+        setShowCompletionDialog(false);
+      }
+    } catch (err: any) {
       console.error("Error updating job status:", err);
-      setError("Failed to update job status");
+      if (err.code === "permission-denied") {
+        setError("You don't have permission to update this job. Please contact your administrator.");
+      } else {
+        setError("Failed to update job status. Please try again.");
+      }
     } finally {
       setUpdating(false);
     }
@@ -336,7 +427,7 @@ export default function JobDetailsPage() {
             <h1 className="text-2xl font-bold text-gray-100 mb-2">{job.title || "Untitled Job"}</h1>
             <div className="flex items-center gap-3">
               <span className={`px-2 py-1 text-xs font-semibold rounded-full ${getStatusColor(job.status)}`}>
-                {job.status}
+                {job.status?.charAt(0)?.toUpperCase() + job.status?.slice(1)?.toLowerCase()}
               </span>
             </div>
           </div>
@@ -406,8 +497,8 @@ export default function JobDetailsPage() {
               <div className="bg-gray-900/50 shadow-lg rounded-lg border border-gray-800 p-6 space-y-6">
                 <div className="flex items-center justify-between mb-6">
                   <h2 className="text-xl font-bold text-gray-100">Completion Details</h2>
-                  <span className={`px-3 py-1 rounded-full text-sm font-medium ${getStatusColor(job.status)}`}>
-                    {job.status}
+                  <span className={`px-3 py-1 rounded-full ${getStatusColor(job.status)}`}>
+                    {job.status?.charAt(0)?.toUpperCase() + job.status?.slice(1)?.toLowerCase()}
                   </span>
                 </div>
 

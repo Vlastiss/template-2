@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/hooks/useAuth";
 import { useTheme } from "@/lib/contexts/ThemeContext";
 import { Button } from "./ui/button";
@@ -9,6 +10,16 @@ import { UserCircle, LogOut, PlusCircle, Sun, Moon } from "lucide-react";
 export default function Navbar() {
   const { user, signOut, isAdmin } = useAuth();
   const { theme, toggleTheme } = useTheme();
+  const router = useRouter();
+
+  const handleSignOut = async () => {
+    try {
+      await signOut();
+      router.replace('/login');
+    } catch (error) {
+      console.error("Error signing out:", error);
+    }
+  };
 
   return (
     <nav className="border-b border-border bg-background">
@@ -54,7 +65,7 @@ export default function Navbar() {
                   <Button
                     variant="ghost"
                     size="sm"
-                    onClick={() => signOut()}
+                    onClick={handleSignOut}
                     className="flex items-center gap-2 ml-4 text-red-600 hover:text-red-700 hover:bg-red-50 dark:text-red-400 dark:hover:text-red-300 dark:hover:bg-red-900/20"
                   >
                     <LogOut className="w-4 h-4" />

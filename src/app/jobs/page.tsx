@@ -305,7 +305,7 @@ export default function JobsPage() {
         await uploadBytes(fileRef, file);
         const url = await getDownloadURL(fileRef);
         uploadedUrls.push(url);
-      }
+  }
 
       setFeedbackAttachments(prev => [...prev, ...uploadedUrls]);
       toast({
@@ -321,7 +321,7 @@ export default function JobsPage() {
       });
     } finally {
       setIsUploading(false);
-    }
+  }
   };
 
   const handleCompleteJob = async () => {
@@ -452,7 +452,7 @@ export default function JobsPage() {
         }
 
         return {
-          id: doc.id,
+        id: doc.id,
           title: title || data.title || 'Untitled Job',
           clientName: clientName || data.clientName || 'No Client',
           clientAddress: clientAddress || data.clientAddress || 'No Address',
@@ -524,7 +524,7 @@ export default function JobsPage() {
             />
           </Button>
         );
-      },
+    },
     },
     {
       header: "Job Title",
@@ -558,9 +558,9 @@ export default function JobsPage() {
                   // Open preview for images, videos, PDFs, and docs
                   if (['image', 'video', 'pdf', 'doc'].includes(fileType)) {
                     setSelectedImage(url);
-                  } else {
+      } else {
                     window.open(url, '_blank');
-                  }
+      }
                 }}
               >
                 <FilePreview url={url} />
@@ -573,7 +573,7 @@ export default function JobsPage() {
             )}
           </div>
         );
-      },
+    },
     },
     {
       header: "Client",
@@ -677,10 +677,10 @@ export default function JobsPage() {
         
         if (createdAt instanceof Timestamp) {
           return <div>{createdAt.toDate().toLocaleDateString()}</div>;
-        }
+      }
         
         return <div>N/A</div>;
-      },
+    },
     },
     {
       id: "actions",
@@ -705,7 +705,7 @@ export default function JobsPage() {
             await updateDoc(jobRef, {
               status: newStatus,
               updatedAt: serverTimestamp()
-            });
+  });
 
             if (newStatus === 'in-progress') {
               toast({
@@ -713,14 +713,14 @@ export default function JobsPage() {
                 description: `You've successfully accepted "${jobTitle}". You can now start working on this job.`,
                 duration: 5000,
               });
-            }
+  }
           } catch (err) {
             console.error("Error updating job status:", err);
             toast({
               title: "Error",
               description: "Failed to update job status. Please try again.",
               variant: "destructive",
-            });
+  });
           }
         };
 
@@ -775,11 +775,11 @@ export default function JobsPage() {
                 </div>
               );
             default:
-              return null;
-          }
+    return null;
+  }
         }
 
-        return null;
+    return null;
       },
     },
   ];
@@ -834,7 +834,7 @@ export default function JobsPage() {
                       // Only navigate if not clicking the expand button
                       if (!(e.target as HTMLElement).closest('button')) {
                         window.location.href = `/jobs/${row.original.id}`;
-                      }
+  }
                     }}
                   >
                     {row.getVisibleCells().map((cell) => (
@@ -923,7 +923,7 @@ export default function JobsPage() {
             setCompletionDialog({ isOpen: false, jobId: null, jobTitle: null });
             setCompletionFeedback("");
             setFeedbackAttachments([]);
-          }
+  }
         }}
       >
         <DialogContent className="sm:max-w-[500px]">
@@ -1023,7 +1023,7 @@ export default function JobsPage() {
           <div className="relative w-full bg-black/5 rounded-lg overflow-hidden">
             {selectedImage && (() => {
               const fileType = getFileType(selectedImage);
-              
+
               switch (fileType) {
                 case 'video':
                   return (
