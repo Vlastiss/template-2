@@ -15,13 +15,24 @@ import { useAuth } from "@/lib/hooks/useAuth";
 interface JobFormData {
   title: string;
   description: string;
+  enhancedDescription?: string;
   status: string;
   assignedTo: string;
   startTime: string;
   clientName: string;
   clientPhone: string;
   clientAddress: string;
+  clientEmail: string;
   attachments: File[];
+  jobTitle?: string;
+  jobDescription?: string;
+  timeline?: {
+    startDate: string | null;
+    completionDate: string | null;
+    estimatedDuration: string;
+  };
+  requiredTools?: string[];
+  instructions?: string[];
 }
 
 interface User {
@@ -38,15 +49,99 @@ const initialFormData: JobFormData = {
   clientName: "",
   clientPhone: "",
   clientAddress: "",
+  clientEmail: "",
   attachments: []
+};
+
+const extractClientInfo = (rawDescription: string) => {
+  const lines = rawDescription.split('\n');
+  let clientInfo = {
+    name: '',
+    email: '',
+    phone: '',
+    address: '',
+  };
+  let requirements: string[] = [];
+  let isInRequirements = false;
+  let currentSection = '';
+
+  for (const line of lines) {
+    const trimmedLine = line.trim();
+    if (!trimmedLine) continue;
+
+    // Check for section headers
+    if (trimmedLine.toLowerCase().includes('your name:')) {
+      currentSection = 'name';
+      clientInfo.name = lines[lines.indexOf(line) + 1]?.trim() || '';
+      continue;
+    }
+    if (trimmedLine.toLowerCase().includes('your e-mail:')) {
+      currentSection = 'email';
+      clientInfo.email = lines[lines.indexOf(line) + 1]?.trim() || '';
+      continue;
+    }
+    if (trimmedLine.toLowerCase().includes('your phone:')) {
+      currentSection = 'phone';
+      clientInfo.phone = lines[lines.indexOf(line) + 1]?.trim() || '';
+      continue;
+    }
+    if (trimmedLine.toLowerCase().includes('your address:')) {
+      currentSection = 'address';
+      clientInfo.address = lines[lines.indexOf(line) + 1]?.trim() || '';
+      continue;
+    }
+
+    // Start capturing requirements
+    if (trimmedLine.toLowerCase().includes('please specify your requirements here:') ||
+        trimmedLine.toLowerCase().includes('please can you help with:')) {
+      isInRequirements = true;
+      currentSection = 'requirements';
+      continue;
+    }
+
+    // Capture requirement lines
+    if (isInRequirements && 
+        !trimmedLine.toLowerCase().includes('your e-mail:') &&
+        !trimmedLine.toLowerCase().includes('your address:') &&
+        !trimmedLine.toLowerCase().includes('your phone:') &&
+        !trimmedLine.startsWith('Your ')) {
+      requirements.push(trimmedLine);
+    }
+  }
+
+  // Format requirements into a proper description
+  const description = requirements
+    .filter(req => req.length > 0)
+    .join('\n');
+
+  return {
+    clientInfo,
+    description: description.trim()
+  };
+};
+
+const formatJobDescription = (description: unknown): string => {
+  // Ensure we have a string to work with
+  if (!description || typeof description !== 'string') {
+    return '';
+  }
+
+  // Split into lines and clean up
+  const lines = description.split('\n')
+    .map(line => line.trim())
+    .filter(line => line.length > 0);
+
+  // Convert to bullet points if not already
+  return lines
+    .map(line => line.startsWith('•') ? line : `• ${line}`)
+    .join('\n');
 };
 
 export default function NewJobPage() {
   const [formData, setFormData] = useState<JobFormData>(initialFormData);
-  const [error, setError] = useState("");
+  const [error, setError] = useState<string>("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [users, setUsers] = useState<User[]>([]);
-  const [files, setFiles] = useState<File[]>([]);
   const [isAdmin, setIsAdmin] = useState(false);
   const router = useRouter();
   const { toast } = useToast();
@@ -113,126 +208,222 @@ export default function NewJobPage() {
     fetchUsers();
   }, [isAdmin, toast]);
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleChange = (
+    e: React.ChangeEvent<HTMLTextAreaElement | HTMLInputElement | HTMLSelectElement>
+  ) => {
+    const { name, value } = e.target;
+    
+    if (name === 'description') {
+      // First update the raw input value immediately
+      setFormData(prev => ({
+        ...prev,
+        [name]: value
+      }));
+
+      // Then process the client info
+      const { clientInfo, description } = extractClientInfo(value);
+      
+      // Update the form with extracted information
+      setFormData(prev => ({
+        ...prev,
+        clientName: clientInfo.name || prev.clientName,
+        clientPhone: clientInfo.phone || prev.clientPhone,
+        clientEmail: clientInfo.email || prev.clientEmail,
+        clientAddress: clientInfo.address || prev.clientAddress,
+      }));
+    } else {
+      setFormData(prev => ({ ...prev, [name]: value }));
+    }
+  };
+
+  const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    // Prevent the default paste behavior
     e.preventDefault();
-    if (!user || !isAdmin) {
+    
+    const pastedText = e.clipboardData.getData('text');
+    const { name, selectionStart, selectionEnd } = e.currentTarget;
+    
+    if (name === 'description') {
+      // Get the current text and cursor position
+      const currentText = formData.description;
+      const beforePaste = currentText.substring(0, selectionStart || 0);
+      const afterPaste = currentText.substring(selectionEnd || 0);
+      
+      // Combine the text with the pasted content
+      const newText = beforePaste + pastedText + afterPaste;
+      
+      // Update form with the combined text
+      setFormData(prev => ({
+        ...prev,
+        description: newText
+      }));
+
+      // Process client info
+      const { clientInfo } = extractClientInfo(newText);
+      
+      // Update the form with extracted information
+      setFormData(prev => ({
+        ...prev,
+        clientName: clientInfo.name || prev.clientName,
+        clientPhone: clientInfo.phone || prev.clientPhone,
+        clientEmail: clientInfo.email || prev.clientEmail,
+        clientAddress: clientInfo.address || prev.clientAddress,
+      }));
+    }
+  };
+
+  const handleFileUpload = (newFiles: File[]) => {
+    // Check if adding these files would exceed the limit
+    if (formData.attachments.length + newFiles.length > 5) {
       toast({
-        title: "Access Denied",
-        description: "You don't have permission to create jobs",
+        title: "Too many files",
+        description: "Maximum 5 files allowed",
         variant: "destructive",
       });
       return;
     }
 
-    if (!formData.description.trim()) {
-      setError("Please enter job details first");
+    // Add new files to attachments
+    setFormData(prev => ({
+      ...prev,
+      attachments: [...prev.attachments, ...newFiles]
+    }));
+  };
+
+  const handleFileRemove = (indexToRemove: number) => {
+    setFormData(prev => ({
+      ...prev,
+      attachments: prev.attachments.filter((_, index) => index !== indexToRemove)
+    }));
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    if (!user) {
+      toast({
+        title: "Authentication Error",
+        description: "You must be logged in to create jobs",
+        variant: "destructive",
+      });
       return;
     }
 
     setIsSubmitting(true);
     setError("");
 
-    try {
-      // Get fresh token before upload
-      await auth.currentUser?.getIdToken(true);
-      
-      // Upload attachments
-      const uploadedUrls: string[] = [];
-      if (formData.attachments.length > 0) {
-        for (const file of formData.attachments) {
-          const fileRef = storageRef(storage, `jobs/${Date.now()}-${file.name}`);
-          try {
-            const snapshot = await uploadBytes(fileRef, file);
-            const downloadUrl = await getDownloadURL(snapshot.ref);
-            uploadedUrls.push(downloadUrl);
-          } catch (uploadError) {
-            console.error('Error uploading file:', uploadError);
-            throw new Error('Failed to upload attachments');
-          }
-        }
-      }
+    // Show a loading toast and redirect immediately
+    toast({
+      title: "Creating job...",
+      description: "Your job is being created in the background",
+    });
 
-      // Show loading toast
-      toast({
-        title: "Creating job...",
-        description: "Your job is being created in the background",
+    // Redirect to jobs page immediately with query parameter
+    router.push('/jobs?creating=true');
+
+    try {
+      // Update progress - Starting
+      window.localStorage.setItem('jobUploadProgress', '10');
+
+      // First get the enhanced description and data from OpenAI
+      const response = await fetch('/api/openai/enhance-job', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          input: formData.description
+        })
       });
 
-      // Get enhanced description from OpenAI
-      let enhancedData = null;
-      try {
-        const enhancedDescription = await enhanceJobDescription(formData.description);
-        if (enhancedDescription) {
-          enhancedData = JSON.parse(enhancedDescription);
-        }
-      } catch (aiError) {
-        console.error('Error enhancing description:', aiError);
-        // Continue without AI enhancement
+      if (!response.ok) {
+        throw new Error('Failed to enhance job description');
       }
 
-      // Create the job document
+      // Update progress - Got OpenAI response
+      window.localStorage.setItem('jobUploadProgress', '40');
+
+      const enhancedData = await response.json();
+      
+      if (!enhancedData.result) {
+        throw new Error('Invalid response from OpenAI');
+      }
+
+      const enhancedResult = enhancedData.result;
+
+      // Update progress - Processing attachments
+      window.localStorage.setItem('jobUploadProgress', '60');
+
+      // Upload attachments
+      const uploadPromises = formData.attachments.map(async (file) => {
+        const fileRef = storageRef(storage, `jobs/${file.name}`);
+        await uploadBytes(fileRef, file);
+        return getDownloadURL(fileRef);
+      });
+
+      const attachmentUrls = await Promise.all(uploadPromises);
+
+      // Update progress - Attachments uploaded
+      window.localStorage.setItem('jobUploadProgress', '80');
+
+      // Create the job document with enhanced data
       const jobData = {
-        title: enhancedData?.jobTitle || formData.title || 'Untitled Job',
-        description: formData.description,
-        enhancedDescription: enhancedData?.fullDescription || formData.description,
-        jobDescription: enhancedData?.jobDescription || '',
-        status: "new",
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-        createdBy: user.email,
-        startTime: formData.startTime || null,
+        title: enhancedResult.jobTitle.length > 50 
+          ? enhancedResult.jobTitle.substring(0, 47) + '...'
+          : enhancedResult.jobTitle,
+        description: [
+          enhancedResult.jobDescription,
+          '',
+          `**Tools:**`,
+          enhancedResult.requiredTools.map((tool: string) => `• ${tool}`).join('\n'),
+          '',
+          `**Steps:**`,
+          enhancedResult.instructions.map((instruction: string, index: number) => 
+            `${index + 1}. ${instruction.trim()}`
+          ).join('\n')
+        ].join('\n'),
+        originalDescription: formData.description,
+        status: formData.status,
         assignedTo: formData.assignedTo || null,
-        clientName: enhancedData?.clientName || formData.clientName || 'No Client',
-        clientPhone: enhancedData?.clientPhone || formData.clientPhone || 'No Phone',
-        clientEmail: enhancedData?.clientEmail || '',
-        clientAddress: enhancedData?.clientAddress || formData.clientAddress || 'No Address',
-        attachments: uploadedUrls,
-        timeline: enhancedData?.timeline || {},
-        requiredTools: enhancedData?.requiredTools || [],
-        instructions: enhancedData?.instructions || [],
-        estimatedDuration: enhancedData?.estimatedDuration || null,
+        startTime: formData.startTime ? new Date(formData.startTime) : null,
+        clientName: enhancedResult.clientName,
+        clientPhone: enhancedResult.clientPhone,
+        clientEmail: enhancedResult.clientEmail,
+        clientAddress: enhancedResult.clientAddress,
+        timeline: enhancedResult.timeline,
+        requiredTools: enhancedResult.requiredTools,
+        instructions: enhancedResult.instructions,
+        attachments: attachmentUrls,
+        createdAt: serverTimestamp(),
+        createdBy: user.email,
+        feedback: '',
+        feedbackAttachments: []
       };
 
-      // Create the job
       await addDoc(collection(db, "jobs"), jobData);
 
-      // Show success toast
+      // Update progress - Complete
+      window.localStorage.setItem('jobUploadProgress', '100');
+
+      // Show success toast after job is created
       toast({
         title: "Success",
         description: "Job created successfully",
       });
-
-      // Redirect to jobs page
-      router.push('/jobs');
-    } catch (error) {
-      console.error('Error creating job:', error);
+    } catch (err) {
+      console.error('Error creating job:', err);
+      const errorMessage = err instanceof Error ? err.message : 'Failed to create job';
+      // Show error toast
       toast({
         title: "Error",
-        description: error instanceof Error ? error.message : "Failed to create job",
+        description: errorMessage,
         variant: "destructive",
       });
+      // Reset progress on error
+      window.localStorage.removeItem('jobUploadProgress');
     } finally {
       setIsSubmitting(false);
     }
-  };
-
-  const handleChange = (
-    e: React.ChangeEvent<HTMLTextAreaElement | HTMLInputElement | HTMLSelectElement>
-  ) => {
-    const { name, value } = e.target;
-    setFormData(prev => ({ ...prev, [name]: value }));
-  };
-
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (!files) return;
-
-    // Convert FileList to Array and update form data
-    const fileArray = Array.from(files);
-    setFormData(prev => ({
-      ...prev,
-      attachments: fileArray
-    }));
   };
 
   // Only render the form if user is admin
@@ -256,6 +447,7 @@ export default function NewJobPage() {
                 placeholder="Insert data from email"
                 value={formData.description}
                 onChange={handleChange}
+                onPaste={handlePaste}
                 className="w-full p-4 bg-background border-input rounded-lg focus:ring-ring focus:border-ring"
               />
             </div>
@@ -301,46 +493,64 @@ export default function NewJobPage() {
                 Attachments
               </label>
               <div className="space-y-4">
-                {formData.attachments.map((file, index) => (
-                  <FileUpload
-                    key={index}
-                    uniqueId={`existing-${index}`}
-                    existingFile={file}
-                    onFileChange={(newFile) => {
-                      const newAttachments = [...formData.attachments];
-                      if (newFile) {
-                        newAttachments[index] = newFile;
-                      } else {
-                        newAttachments.splice(index, 1);
-                      }
-                      setFormData(prev => ({
-                        ...prev,
-                        attachments: newAttachments
-                      }));
-                    }}
-                    maxSizeMB={100}
-                    acceptedTypes="image/*,video/*,.pdf,.doc,.docx"
-                  />
+                {formData.attachments.map((attachment, index) => (
+                  <div key={`attachment-${index}`} className="relative">
+                    <FileUpload
+                      uniqueId={`file-${index}`}
+                      existingFile={attachment}
+                      onFileChange={(newFile) => {
+                        if (!newFile) {
+                          handleFileRemove(index);
+                        } else {
+                          const newAttachments = [...formData.attachments];
+                          newAttachments[index] = newFile;
+                          setFormData(prev => ({
+                            ...prev,
+                            attachments: newAttachments
+                          }));
+                        }
+                      }}
+                      maxSizeMB={100}
+                      acceptedTypes="image/*,video/*,.pdf,.doc,.docx"
+                    />
+                  </div>
                 ))}
-                {formData.attachments.length < 5 && ( // Limit to 5 attachments
-                  <FileUpload
-                    uniqueId="new-upload"
-                    onFileChange={(file) => {
-                      if (file) {
-                        setFormData(prev => ({
-                          ...prev,
-                          attachments: [...prev.attachments, file]
-                        }));
-                      }
-                    }}
-                    maxSizeMB={100}
-                    acceptedTypes="image/*,video/*,.pdf,.doc,.docx"
-                  />
+
+                {formData.attachments.length < 5 && (
+                  <div className="mt-4">
+                    <input
+                      type="file"
+                      id="file-upload"
+                      multiple
+                      accept="image/*,video/*,.pdf,.doc,.docx"
+                      className="hidden"
+                      onChange={(e) => {
+                        const files = Array.from(e.target.files || []);
+                        handleFileUpload(files);
+                        // Clear the input
+                        e.target.value = '';
+                      }}
+                    />
+                    <label
+                      htmlFor="file-upload"
+                      className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-border rounded-lg cursor-pointer bg-background hover:bg-accent transition-colors"
+                    >
+                      <div className="flex flex-col items-center justify-center pt-5 pb-6">
+                        <Upload className="w-8 h-8 mb-2 text-muted-foreground" />
+                        <p className="mb-2 text-sm text-muted-foreground">
+                          <span className="font-semibold">Click to upload</span> or drag and drop
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          Upload up to {5 - formData.attachments.length} more files
+                        </p>
+                      </div>
+                    </label>
+                  </div>
                 )}
               </div>
               {formData.attachments.length >= 5 && (
-                <p className="text-sm text-gray-500 mt-2">
-                  Maximum of 5 attachments allowed
+                <p className="text-sm text-muted-foreground mt-2">
+                  Maximum of 5 attachments reached
                 </p>
               )}
             </div>

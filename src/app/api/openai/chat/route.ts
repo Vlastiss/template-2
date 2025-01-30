@@ -8,29 +8,12 @@ const MIN_REQUEST_INTERVAL = 2000; // 2 seconds between requests
 
 export async function POST(req: Request) {
   try {
-    const now = Date.now();
-    const timeSinceLastRequest = now - lastRequestTime;
-
-    if (timeSinceLastRequest < MIN_REQUEST_INTERVAL) {
-      const waitTime = MIN_REQUEST_INTERVAL - timeSinceLastRequest;
-      return new Response(
-        JSON.stringify({ 
-          error: `Rate limit exceeded. Please wait ${Math.ceil(waitTime/1000)} seconds.`,
-          retryAfter: waitTime
-        }), 
-        { 
-          status: 429,
-          headers: { 
-            'Content-Type': 'application/json',
-            'Retry-After': Math.ceil(waitTime/1000).toString()
-          }
-        }
-      );
-    }
-
-    const { prompt } = await req.json();
+    const { messages } = await req.json();
+    
+    console.log('Received messages:', JSON.stringify(messages, null, 2));
 
     if (!process.env.OPENAI_API_KEY) {
+      console.error('OpenAI API key is not configured');
       return new Response('OpenAI API key not configured', { status: 500 });
     }
 
@@ -45,59 +28,37 @@ export async function POST(req: Request) {
         messages: [
           {
             role: 'system',
-            content: `You are a job card formatting assistant. When given text, carefully extract and format the following information:
-
-1. Client Information (under "### Client Details"):
-   - Full Name (first line)
-   - Phone Number (exactly as it appears in the text, preserve ALL digits and formatting)
-   - Complete Address (preserve exactly as written)
-
-IMPORTANT: For phone numbers:
-- Keep ALL digits, spaces, and special characters
-- Do not modify or reformat phone numbers
-- Place the phone number on its own line
-- If multiple phone numbers exist, include all of them
-
-Format the output in a clear, structured markdown format with these exact section headers:
-### Job Title/Name
-[Extracted or generated title]
-
-### Client Details
-[Client Name]
-[Phone Number - EXACTLY as it appears in original text]
-[Complete Address]
-
-### Job Description
-[Detailed description with requirements]
-
-### Job Timeline/Deadline
-[Any timeline information found]
-
-### Required Tools/Materials
-[List of required tools/materials]
-
-### Instructions on How to Complete the Job
-[Step-by-step instructions if available]
-
-Remember: Preserve ALL contact information EXACTLY as provided in the original text. Do not modify phone numbers or addresses.`
+            content: 'You are a job description formatter. You must return a valid JSON object with the exact structure provided. Do not include any explanatory text or additional content.'
           },
-          {
-            role: 'user',
-            content: `Transfer this text into the JobCard format:\n\n${prompt}`
-          }
+          ...messages
         ],
-        stream: true,
-        max_tokens: 1000,
         temperature: 0.3,
-        presence_penalty: 0,
+        max_tokens: 2000,
         frequency_penalty: 0,
+        presence_penalty: 0
       }),
     });
 
+    const responseData = await response.text();
+    console.log('Raw OpenAI response:', responseData);
+
     if (!response.ok) {
-      const error = await response.json().catch(() => null);
+      console.error('OpenAI API error status:', response.status);
+      console.error('OpenAI API error response:', responseData);
+      
+      let errorMessage = 'Failed to fetch from OpenAI';
+      try {
+        const errorJson = JSON.parse(responseData);
+        errorMessage = errorJson.error?.message || errorMessage;
+      } catch (e) {
+        console.error('Failed to parse error response:', e);
+      }
+
       return new Response(
-        JSON.stringify(error || { error: 'Failed to fetch from OpenAI' }), 
+        JSON.stringify({ 
+          error: errorMessage,
+          details: responseData
+        }), 
         { 
           status: response.status,
           headers: { 'Content-Type': 'application/json' }
@@ -105,15 +66,48 @@ Remember: Preserve ALL contact information EXACTLY as provided in the original t
       );
     }
 
-    // Update last request time only if the request was successful
-    lastRequestTime = now;
+    try {
+      const data = JSON.parse(responseData);
+      console.log('Parsed OpenAI response:', JSON.stringify(data, null, 2));
 
-    const stream = OpenAIStream(response);
-    return new StreamingTextResponse(stream);
+      if (!data.choices?.[0]?.message?.content) {
+        throw new Error('Invalid response format from OpenAI');
+      }
+
+      // Try to parse the response content as JSON
+      try {
+        const jsonResponse = JSON.parse(data.choices[0].message.content.trim());
+        return new Response(
+          JSON.stringify({ content: JSON.stringify(jsonResponse) }), 
+          { 
+            status: 200,
+            headers: { 'Content-Type': 'application/json' }
+          }
+        );
+      } catch (jsonError) {
+        console.error('Failed to parse response as JSON:', jsonError);
+        throw new Error('Response is not valid JSON');
+      }
+    } catch (parseError) {
+      console.error('Error parsing OpenAI response:', parseError);
+      return new Response(
+        JSON.stringify({ 
+          error: 'Failed to parse OpenAI response',
+          details: responseData
+        }), 
+        { 
+          status: 500,
+          headers: { 'Content-Type': 'application/json' }
+        }
+      );
+    }
   } catch (error) {
-    console.error('Error in OpenAI chat route:', error);
+    console.error('Error in OpenAI route:', error);
     return new Response(
-      JSON.stringify({ error: 'Internal server error' }), 
+      JSON.stringify({ 
+        error: 'Internal server error',
+        message: error instanceof Error ? error.message : 'Unknown error'
+      }), 
       { 
         status: 500,
         headers: { 'Content-Type': 'application/json' }

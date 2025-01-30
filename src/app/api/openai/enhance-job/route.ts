@@ -33,37 +33,37 @@ Return the data in this exact format:
   "clientEmail": "Client's email address",
   "clientPhone": "Client's phone number",
   "clientAddress": "Complete address",
-  "jobDescription": "A clear description of the main tasks",
-  "fullDescription": "The complete formatted job description in markdown",
+  "jobDescription": "A clear, bullet-pointed list of main tasks (use • for bullets)",
   "timeline": {
     "startDate": "Proposed start date or null",
     "completionDate": "Expected completion date or null",
     "estimatedDuration": "Estimated duration in days"
   },
   "requiredTools": [
-    "List of required tools and materials"
+    "List of required tools and materials for each task"
   ],
   "instructions": [
-    "Step by step instructions for completing the job"
+    "Detailed step-by-step instructions for completing each task"
   ]
 }
 
 Make sure to:
 1. Create a descriptive and professional job title based on the main tasks
-2. Extract or infer client details from the input
-3. Structure the job description clearly
-4. Propose reasonable timeline/deadline if not specified
-5. List all necessary tools and materials based on the tasks
-6. Break down the job into clear step-by-step instructions
-7. Return ONLY valid JSON that matches the exact format above`
+2. Extract all client details from the input
+3. Format the job description as bullet points using • symbol
+4. Propose reasonable timeline estimates based on the tasks
+5. List ALL necessary tools and materials for EACH task
+6. Break down EACH task into clear step-by-step instructions
+7. Return ONLY valid JSON that matches the exact format above
+8. DO NOT include any markdown formatting or headers in the response`
         },
         {
           role: 'user',
           content: input
         }
       ],
-      temperature: 0.7,
-      max_tokens: 1000,
+      temperature: 0.3,
+      max_tokens: 2000,
     });
 
     const formattedText = completion.choices[0]?.message?.content;
@@ -75,7 +75,29 @@ Make sure to:
       );
     }
 
-    return NextResponse.json({ result: formattedText });
+    try {
+      // Validate the JSON response
+      const parsedResponse = JSON.parse(formattedText);
+      
+      // Ensure job description has bullet points
+      if (!parsedResponse.jobDescription.includes('•')) {
+        parsedResponse.jobDescription = parsedResponse.jobDescription
+          .split('\n')
+          .map((line: string) => line.trim())
+          .filter((line: string) => line.length > 0)
+          .map((line: string) => line.startsWith('•') ? line : `• ${line}`)
+          .join('\n');
+      }
+
+      return NextResponse.json({ result: parsedResponse });
+    } catch (error) {
+      console.error('Error parsing OpenAI response:', error);
+      console.error('Raw response:', formattedText);
+      return NextResponse.json(
+        { error: 'Failed to parse the formatted text' },
+        { status: 500 }
+      );
+    }
   } catch (error: any) {
     console.error('OpenAI API error:', error);
     return NextResponse.json(
