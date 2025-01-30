@@ -8,7 +8,7 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-} from "@/components/ui/table";
+} from "@/components/ui/userTable";
 import { useAuth } from "@/lib/hooks/useAuth";
 import { db } from "@/lib/firebase/firebase";
 import { collection, getDocs } from "firebase/firestore";
