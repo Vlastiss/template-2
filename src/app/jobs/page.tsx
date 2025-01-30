@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment, useEffect, useState, useRef } from "react";
-import { collection, query, orderBy, onSnapshot, deleteDoc, doc, getDoc, Timestamp, updateDoc, serverTimestamp } from "firebase/firestore";
+import { collection, query, orderBy, onSnapshot, deleteDoc, doc, getDoc, Timestamp, updateDoc, serverTimestamp, where } from "firebase/firestore";
 import { db } from "@/lib/firebase/firebase";
 import { useAuth } from "@/lib/hooks/useAuth";
 import Link from "next/link";
@@ -37,6 +37,7 @@ import { useToast } from "@/hooks/use-toast"
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { storage } from "@/lib/firebase/firebase";
 import { FileUploader } from "@/components/FileUploader";
+import { useRouter } from "next/navigation";
 
 
 interface Job {
@@ -257,57 +258,134 @@ const FilePreview = ({ url }: { url: string }) => {
 };
 
 export default function JobsPage() {
+  const router = useRouter();
   const [jobs, setJobs] = useState<Job[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [isAdmin, setIsAdmin] = useState(false);
-  const { user } = useAuth();
-  const [selectedImage, setSelectedImage] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const { user, isAdmin } = useAuth();
   const { toast } = useToast();
-  const [completionDialog, setCompletionDialog] = useState<{
-    isOpen: boolean;
-    jobId: string | null;
-    jobTitle: string | null;
-  }>({ isOpen: false, jobId: null, jobTitle: null });
-  const [completionFeedback, setCompletionFeedback] = useState("");
-  const [feedbackAttachments, setFeedbackAttachments] = useState<string[]>([]);
-  const [isUploading, setIsUploading] = useState(false);
-  const [tempJobId, setTempJobId] = useState<string | null>(null);
+  const [selectedJob, setSelectedJob] = useState<string | null>(null);
+  const [selectedJobTitle, setSelectedJobTitle] = useState<string>("");
+  const [isCompletionDialogOpen, setIsCompletionDialogOpen] = useState(false);
+  const [feedback, setFeedback] = useState("");
+  const [attachments, setAttachments] = useState<string[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Check for temp job ID on mount and when localStorage changes
   useEffect(() => {
-    const checkTempJob = () => {
-      const tempId = localStorage.getItem('tempJobId');
-      setTempJobId(tempId);
-    };
+    if (!user) {
+      setIsLoading(false);
+      return;
+    }
 
-    // Check on mount
-    checkTempJob();
+    setIsLoading(true);
+    let jobsQuery;
+    try {
+      console.log('Current user:', { email: user.email, uid: user.uid, isAdmin: isAdmin() }); // Debug log
 
-    // Listen for storage changes
-    window.addEventListener('storage', checkTempJob);
-    
-    return () => {
-      window.removeEventListener('storage', checkTempJob);
-    };
-  }, []);
+      if (isAdmin()) {
+        // Admin sees all jobs
+        jobsQuery = query(collection(db, "jobs"), orderBy("createdAt", "desc"));
+        console.log('Using admin query');
+      } else {
+        // Regular users only see jobs assigned to them
+        if (!user.email) {
+          console.error('User email is missing');
+          toast({
+            title: "Error",
+            description: "User email is not available. Please try logging in again.",
+            variant: "destructive",
+            duration: 5000,
+          });
+          return;
+        }
+
+        console.log('Creating employee query for email:', user.email);
+        jobsQuery = query(
+          collection(db, "jobs"),
+          where("assignedTo", "==", user.email)
+          // orderBy temporarily removed until index is created
+        );
+      }
+
+      const unsubscribe = onSnapshot(jobsQuery, 
+        (snapshot) => {
+          console.log('Query snapshot received, document count:', snapshot.docs.length);
+          
+          const jobsData = snapshot.docs.map((doc) => {
+            const data = doc.data();
+            console.log('Job data:', { id: doc.id, assignedTo: data.assignedTo }); // Debug log
+            return {
+              id: doc.id,
+              ...data,
+            } as Job;
+          });
+
+          // Sort the jobs in memory temporarily
+          if (!isAdmin()) {
+            jobsData.sort((a, b) => {
+              const dateA = a.createdAt?.toDate?.() || new Date(0);
+              const dateB = b.createdAt?.toDate?.() || new Date(0);
+              return dateB.getTime() - dateA.getTime();
+            });
+          }
+
+          console.log('Final jobs data:', jobsData.length, 'jobs');
+          setJobs(jobsData);
+          setIsLoading(false);
+        },
+        (error) => {
+          console.error("Error fetching jobs:", error);
+          if (error.code === 'failed-precondition') {
+            toast({
+              title: "Database Index Required",
+              description: "The administrator needs to create the required database index. Please follow the setup instructions.",
+              variant: "destructive",
+              duration: 10000,
+            });
+          } else {
+            toast({
+              title: "Error Loading Jobs",
+              description: "There was an error loading the jobs. Please try again later.",
+              variant: "destructive",
+              duration: 5000,
+            });
+          }
+          setIsLoading(false);
+        }
+      );
+
+      return () => {
+        unsubscribe();
+        setIsLoading(true); // Reset loading state on cleanup
+      };
+    } catch (error) {
+      console.error("Error setting up jobs query:", error);
+      toast({
+        title: "Error",
+        description: "There was an error setting up the jobs view. Please try again later.",
+        variant: "destructive",
+        duration: 5000,
+      });
+      setIsLoading(false);
+    }
+  }, [user, isAdmin, toast]);
 
   const handleOpenCompletionDialog = (jobId: string, jobTitle: string) => {
-    setCompletionDialog({ isOpen: true, jobId, jobTitle });
+    setIsCompletionDialogOpen(true);
+    setSelectedJobTitle(jobTitle);
   };
 
   const handleFileUpload = async (files: File[]) => {
-    setIsUploading(true);
     const uploadedUrls: string[] = [];
 
     try {
       for (const file of files) {
-        const fileRef = ref(storage, `jobs/${completionDialog.jobId}/feedback/${file.name}`);
+        const fileRef = ref(storage, `jobs/${selectedJob}/feedback/${file.name}`);
         await uploadBytes(fileRef, file);
         const url = await getDownloadURL(fileRef);
         uploadedUrls.push(url);
-  }
+      }
 
-      setFeedbackAttachments(prev => [...prev, ...uploadedUrls]);
+      setAttachments(prev => [...prev, ...uploadedUrls]);
       toast({
         title: "Files Uploaded Successfully",
         description: `${files.length} file(s) have been uploaded.`,
@@ -319,33 +397,31 @@ export default function JobsPage() {
         description: "Failed to upload files. Please try again.",
         variant: "destructive",
       });
-    } finally {
-      setIsUploading(false);
-  }
+    }
   };
 
   const handleCompleteJob = async () => {
-    if (!completionDialog.jobId || !completionFeedback.trim()) return;
+    if (!selectedJob || !feedback.trim()) return;
 
     try {
-      const jobRef = doc(db, "jobs", completionDialog.jobId);
+      const jobRef = doc(db, "jobs", selectedJob);
       await updateDoc(jobRef, {
         status: "completed",
         updatedAt: serverTimestamp(),
-        feedback: completionFeedback.trim(),
-        feedbackAttachments: feedbackAttachments,
+        feedback: feedback.trim(),
+        feedbackAttachments: attachments,
       });
 
       toast({
         title: "Job Completed Successfully! 🎉",
-        description: `Great work! The job "${completionDialog.jobTitle}" has been marked as complete.`,
+        description: `Great work! The job "${selectedJobTitle}" has been marked as complete.`,
         duration: 5000,
       });
 
       // Reset all states
-      setCompletionDialog({ isOpen: false, jobId: null, jobTitle: null });
-      setCompletionFeedback("");
-      setFeedbackAttachments([]);
+      setIsCompletionDialogOpen(false);
+      setFeedback("");
+      setAttachments([]);
     } catch (err) {
       console.error("Error completing job:", err);
       toast({
@@ -355,150 +431,6 @@ export default function JobsPage() {
       });
     }
   };
-
-  // Check if user is admin
-  useEffect(() => {
-    const checkAdminStatus = async () => {
-      if (!user) {
-        setIsAdmin(false);
-        return;
-      }
-
-      try {
-        const userDoc = await getDoc(doc(db, "users", user.uid));
-        if (userDoc.exists()) {
-          setIsAdmin(userDoc.data().role === "admin");
-        }
-      } catch (error) {
-        console.error("Error checking admin status:", error);
-        setIsAdmin(false);
-      }
-    };
-
-    checkAdminStatus();
-  }, [user]);
-
-  // Debug logs
-  useEffect(() => {
-    console.log("Current user:", user);
-    console.log("User email:", user?.email);
-    console.log("Is admin?", isAdmin);
-  }, [user, isAdmin]);
-
-  useEffect(() => {
-    const jobsQuery = query(collection(db, "jobs"), orderBy("createdAt", "desc"));
-    
-    const unsubscribe = onSnapshot(jobsQuery, (snapshot) => {
-      const jobsData = snapshot.docs.map(doc => {
-        const data = doc.data();
-        console.log('Raw job data with attachments:', data.attachments);
-
-        // Extract client info from description
-        let clientName = '';
-        let clientAddress = '';
-        let clientPhone = '';
-        let jobDescription = '';
-        let title = '';
-        let currentSection = '';
-        
-        if (data.description) {
-          const lines = data.description.split('\n');
-          
-          for (let i = 0; i < lines.length; i++) {
-            const line = lines[i].trim();
-            if (!line) continue;
-
-            // Check for section headers (both ### and ** style)
-            if (line.startsWith('### ') || line.startsWith('**')) {
-              const sectionMatch = line.match(/(?:###\s*|\*\*)(.*?)(?:\*\*)?$/);
-              if (sectionMatch) {
-                currentSection = sectionMatch[1].trim();
-                continue;
-              }
-            }
-
-            switch (currentSection) {
-              case 'Job Title':
-                if (!title) {
-                  title = line.replace(/^[-*•]/, '').trim();
-                }
-                break;
-              case 'Client Details':
-                // Clean up the line from markdown and special characters
-                const cleanLine = line
-                  .replace(/^\s*[-*•]\s*/, '')     // Remove list markers
-                  .replace(/\*\*/g, '')            // Remove bold markers
-                  .trim();
-
-                // Check if line contains a label
-                const labelMatch = cleanLine.match(/^(Name|Client Name|Phone|Contact|Email|Address):\s*(.+)/i);
-                if (labelMatch) {
-                  const [, label, value] = labelMatch;
-                  const normalizedLabel = label.toLowerCase();
-                  if (normalizedLabel.includes('name') && !clientName) {
-                    clientName = value.trim();
-                  } else if ((normalizedLabel.includes('phone') || normalizedLabel.includes('contact')) && !clientPhone && value.includes('07')) {
-                    clientPhone = value.trim();
-                  } else if (normalizedLabel.includes('address') && !clientAddress) {
-                    clientAddress = value.trim();
-                  }
-                }
-                break;
-              case 'Job Description':
-                jobDescription += line + '\n';
-                break;
-            }
-          }
-        }
-
-        return {
-        id: doc.id,
-          title: title || data.title || 'Untitled Job',
-          clientName: clientName || data.clientName || 'No Client',
-          clientAddress: clientAddress || data.clientAddress || 'No Address',
-          clientPhone: clientPhone || data.clientPhone || 'No Phone',
-          status: data.status || 'new',
-          startTime: data.startTime || null,
-          createdAt: data.createdAt || null,
-          updatedAt: data.updatedAt || null,
-          description: jobDescription.trim() || data.description || '',
-          assignedTo: data.assignedTo || '',
-          feedback: data.feedback || '',
-          attachments: Array.isArray(data.attachments) ? data.attachments : [],
-          feedbackAttachments: Array.isArray(data.feedbackAttachments) ? data.feedbackAttachments : [],
-          isLoading: false
-        } as Job;
-      });
-
-      // Filter jobs based on user role
-      const filteredJobs = isAdmin 
-        ? jobsData 
-        : jobsData.filter(job => job.assignedTo === user?.email);
-      
-      // Add loading job if we have a temp job
-      const allJobs = [...filteredJobs];
-      if (tempJobId) {
-        allJobs.unshift({
-          id: tempJobId,
-          title: 'Creating new job...',
-          clientName: 'Processing...',
-          clientPhone: 'Processing...',
-          clientAddress: 'Processing...',
-          status: 'new',
-          startTime: null,
-          createdAt: null,
-          updatedAt: null,
-          isLoading: true,
-          tempId: tempJobId
-        });
-      }
-
-      setJobs(allJobs);
-      setLoading(false);
-    });
-
-    return () => unsubscribe();
-  }, [isAdmin, user?.email, tempJobId]);
 
   const columns = [
     {
@@ -524,7 +456,7 @@ export default function JobsPage() {
             />
           </Button>
         );
-    },
+      },
     },
     {
       header: "Job Title",
@@ -557,10 +489,10 @@ export default function JobsPage() {
                   const fileType = getFileType(url);
                   // Open preview for images, videos, PDFs, and docs
                   if (['image', 'video', 'pdf', 'doc'].includes(fileType)) {
-                    setSelectedImage(url);
-      } else {
+                    setSelectedJob(url);
+                  } else {
                     window.open(url, '_blank');
-      }
+                  }
                 }}
               >
                 <FilePreview url={url} />
@@ -573,7 +505,7 @@ export default function JobsPage() {
             )}
           </div>
         );
-    },
+      },
     },
     {
       header: "Client",
@@ -677,10 +609,10 @@ export default function JobsPage() {
         
         if (createdAt instanceof Timestamp) {
           return <div>{createdAt.toDate().toLocaleDateString()}</div>;
-      }
+        }
         
         return <div>N/A</div>;
-    },
+      },
     },
     {
       id: "actions",
@@ -705,7 +637,7 @@ export default function JobsPage() {
             await updateDoc(jobRef, {
               status: newStatus,
               updatedAt: serverTimestamp()
-  });
+            });
 
             if (newStatus === 'in-progress') {
               toast({
@@ -713,19 +645,19 @@ export default function JobsPage() {
                 description: `You've successfully accepted "${jobTitle}". You can now start working on this job.`,
                 duration: 5000,
               });
-  }
+            }
           } catch (err) {
             console.error("Error updating job status:", err);
             toast({
               title: "Error",
               description: "Failed to update job status. Please try again.",
               variant: "destructive",
-  });
+            });
           }
         };
 
         // Show different actions based on user role and job status
-        if (isAdmin) {
+        if (isAdmin()) {
           return (
             <div className="flex justify-end gap-2">
               <Button
@@ -775,11 +707,11 @@ export default function JobsPage() {
                 </div>
               );
             default:
-    return null;
-  }
+              return null;
+          }
         }
 
-    return null;
+        return null;
       },
     },
   ];
@@ -791,139 +723,171 @@ export default function JobsPage() {
     getExpandedRowModel: getExpandedRowModel(),
   });
 
-  if (loading) {
-    return <div>Loading...</div>;
+  if (!user) {
+    return (
+      <div className="container mx-auto py-10">
+        <div className="text-center">
+          <h2 className="text-xl font-semibold">Please log in to view jobs</h2>
+        </div>
+      </div>
+    );
+  }
+
+  if (isLoading) {
+    return (
+      <div className="container mx-auto py-10">
+        <div className="text-center">
+          <div className="animate-pulse space-y-4">
+            <div className="h-8 bg-gray-700/20 rounded w-48 mx-auto"></div>
+            <div className="h-64 bg-gray-700/10 rounded max-w-3xl mx-auto"></div>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   return (
     <div className="container mx-auto py-10">
       <div className="flex justify-between items-center mb-8">
-        <h1 className="text-3xl font-bold">
-          {isAdmin ? "All Jobs" : "My Assigned Jobs"}
+        <h1 className="text-2xl font-bold">
+          {isAdmin() ? "All Jobs" : "My Assigned Jobs"}
         </h1>
-        {isAdmin && (
+        {isAdmin() && (
           <Link href="/jobs/new">
             <Button>Create New Job</Button>
           </Link>
         )}
       </div>
 
-      <div className="rounded-md border">
-        <Table>
-          <TableHeader>
-            {table.getHeaderGroups().map((headerGroup) => (
-              <TableRow key={headerGroup.id} className="hover:bg-transparent">
-                {headerGroup.headers.map((header) => (
-                  <TableHead key={header.id}>
-                    {header.isPlaceholder
-                      ? null
-                      : flexRender(header.column.columnDef.header, header.getContext())}
-                  </TableHead>
-                ))}
-              </TableRow>
-            ))}
-          </TableHeader>
-          <TableBody>
-            {table.getRowModel().rows?.length ? (
-              table.getRowModel().rows.map((row) => (
-                <Fragment key={row.id}>
-                  <TableRow
-                    key={row.id}
-                    className="cursor-pointer hover:bg-gray-800"
-                    onClick={(e) => {
-                      // Only navigate if not clicking the expand button
-                      if (!(e.target as HTMLElement).closest('button')) {
-                        window.location.href = `/jobs/${row.original.id}`;
-  }
-                    }}
-                  >
-                    {row.getVisibleCells().map((cell) => (
-                      <TableCell
-                        key={cell.id}
-                        className="whitespace-nowrap [&:has([aria-expanded])]:w-px [&:has([aria-expanded])]:py-0 [&:has([aria-expanded])]:pr-0"
-                      >
-                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                      </TableCell>
-                    ))}
-                  </TableRow>
-                  {row.getIsExpanded() && (
-                    <TableRow>
-                      <TableCell colSpan={row.getVisibleCells().length}>
-                        <div className="flex flex-col gap-4 py-2">
-                          <div className="flex items-start text-primary/80">
-                            <span
-                              className="me-3 mt-0.5 flex w-7 shrink-0 justify-center"
-                              aria-hidden="true"
-                            >
-                              <Info className="opacity-60" size={16} strokeWidth={2} />
-                            </span>
-                            <p className="text-sm">{row.original.description}</p>
-                          </div>
-                          {row.original.status === 'completed' && (
-                            <div className="flex items-start text-primary/80 mt-2">
+      {jobs.length === 0 ? (
+        <div className="text-center py-10">
+          <h2 className="text-xl font-semibold mb-2">No jobs found</h2>
+          <p className="text-gray-500">
+            {isAdmin() 
+              ? "No jobs have been created yet. Create a new job to get started."
+              : "You don't have any jobs assigned to you yet."}
+          </p>
+        </div>
+      ) : (
+        <div className="rounded-md border">
+          <Table>
+            <TableHeader>
+              {table.getHeaderGroups().map((headerGroup) => (
+                <TableRow key={headerGroup.id} className="hover:bg-transparent">
+                  {headerGroup.headers.map((header) => (
+                    <TableHead key={header.id}>
+                      {header.isPlaceholder
+                        ? null
+                        : flexRender(header.column.columnDef.header, header.getContext())}
+                    </TableHead>
+                  ))}
+                </TableRow>
+              ))}
+            </TableHeader>
+            <TableBody>
+              {table.getRowModel().rows?.length ? (
+                table.getRowModel().rows.map((row) => (
+                  <Fragment key={row.id}>
+                    <TableRow
+                      key={row.id}
+                      className="cursor-pointer hover:bg-gray-800"
+                      onClick={(e) => {
+                        // Only navigate if not clicking a button or link
+                        if (!(e.target as HTMLElement).closest('button, a')) {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          router.push(`/jobs/${row.original.id}`);
+                        }
+                      }}
+                    >
+                      {row.getVisibleCells().map((cell) => (
+                        <TableCell
+                          key={cell.id}
+                          className="whitespace-nowrap [&:has([aria-expanded])]:w-px [&:has([aria-expanded])]:py-0 [&:has([aria-expanded])]:pr-0"
+                        >
+                          {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                        </TableCell>
+                      ))}
+                    </TableRow>
+                    {row.getIsExpanded() && (
+                      <TableRow>
+                        <TableCell colSpan={row.getVisibleCells().length}>
+                          <div className="flex flex-col gap-4 py-2">
+                            <div className="flex items-start text-primary/80">
                               <span
                                 className="me-3 mt-0.5 flex w-7 shrink-0 justify-center"
                                 aria-hidden="true"
                               >
                                 <Info className="opacity-60" size={16} strokeWidth={2} />
                               </span>
-                              <div className="w-full">
-                                {row.original.feedback && (
-                                  <>
-                                    <p className="text-sm font-medium mb-1">Completion Feedback:</p>
-                                    <p className="text-sm mb-3">{row.original.feedback}</p>
-                                  </>
-                                )}
-                                
-                                {Array.isArray(row.original.feedbackAttachments) && row.original.feedbackAttachments.length > 0 && (
-                                  <div className="mt-4">
-                                    <p className="text-sm font-medium mb-2">Feedback Attachments:</p>
-                                    <div className="flex flex-wrap gap-2">
-                                      {row.original.feedbackAttachments.map((url, index) => (
-                                        <div
-                                          key={`${url}-${index}`}
-                                          className="relative group rounded-md border p-2 hover:bg-accent cursor-pointer"
-                                          onClick={(e) => {
-                                            e.stopPropagation();
-                                            setSelectedImage(url);
-                                          }}
-                                        >
-                                          <FilePreview url={url} />
-                                          <div className="absolute inset-0 bg-black/0 group-hover:bg-black/5 transition-colors rounded-md" />
-                                        </div>
-                                      ))}
-                                    </div>
-                                  </div>
-                                )}
-                              </div>
+                              <p className="text-sm">{row.original.description}</p>
                             </div>
-                          )}
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  )}
-                </Fragment>
-              ))
-            ) : (
-              <TableRow>
-                <TableCell colSpan={table.getAllColumns().length} className="h-24 text-center">
-                  No jobs found
-                </TableCell>
-              </TableRow>
-            )}
-          </TableBody>
-        </Table>
-      </div>
+                            {row.original.status === 'completed' && (
+                              <div className="flex items-start text-primary/80 mt-2">
+                                <span
+                                  className="me-3 mt-0.5 flex w-7 shrink-0 justify-center"
+                                  aria-hidden="true"
+                                >
+                                  <Info className="opacity-60" size={16} strokeWidth={2} />
+                                </span>
+                                <div className="w-full">
+                                  {row.original.feedback && (
+                                    <>
+                                      <p className="text-sm font-medium mb-1">Completion Feedback:</p>
+                                      <p className="text-sm mb-3">{row.original.feedback}</p>
+                                    </>
+                                  )}
+                                  
+                                  {Array.isArray(row.original.feedbackAttachments) && row.original.feedbackAttachments.length > 0 && (
+                                    <div className="mt-4">
+                                      <p className="text-sm font-medium mb-2">Feedback Attachments:</p>
+                                      <div className="flex flex-wrap gap-2">
+                                        {row.original.feedbackAttachments.map((url, index) => (
+                                          <div
+                                            key={`${url}-${index}`}
+                                            className="relative group rounded-md border p-2 hover:bg-accent cursor-pointer"
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              setSelectedJob(url);
+                                            }}
+                                          >
+                                            <FilePreview url={url} />
+                                            <div className="absolute inset-0 bg-black/0 group-hover:bg-black/5 transition-colors rounded-md" />
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </Fragment>
+                ))
+              ) : (
+                <TableRow>
+                  <TableCell colSpan={table.getAllColumns().length} className="h-24 text-center">
+                    No jobs found
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </div>
+      )}
 
       {/* Completion Dialog */}
       <Dialog 
-        open={completionDialog.isOpen} 
+        open={isCompletionDialogOpen} 
         onOpenChange={(open) => {
           if (!open) {
-            setCompletionDialog({ isOpen: false, jobId: null, jobTitle: null });
-            setCompletionFeedback("");
-            setFeedbackAttachments([]);
-  }
+            setIsCompletionDialogOpen(false);
+            setFeedback("");
+            setAttachments([]);
+          }
         }}
       >
         <DialogContent className="sm:max-w-[500px]">
@@ -936,7 +900,7 @@ export default function JobsPage() {
           <div className="grid gap-4 py-4">
             <div className="space-y-2">
               <h4 className="font-medium">Job Title</h4>
-              <p className="text-sm text-muted-foreground">{completionDialog.jobTitle}</p>
+              <p className="text-sm text-muted-foreground">{selectedJobTitle}</p>
             </div>
             <div className="space-y-2">
               <label htmlFor="feedback" className="text-sm font-medium">
@@ -946,8 +910,8 @@ export default function JobsPage() {
                 id="feedback"
                 className="flex min-h-[100px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
                 placeholder="Please describe the work completed, any challenges faced, and the final outcome..."
-                value={completionFeedback}
-                onChange={(e) => setCompletionFeedback(e.target.value)}
+                value={feedback}
+                onChange={(e) => setFeedback(e.target.value)}
               />
             </div>
             <div className="space-y-2">
@@ -956,22 +920,25 @@ export default function JobsPage() {
               </label>
               <FileUploader
                 onFilesSelected={handleFileUpload}
-                isUploading={isUploading}
+                isUploading={attachments.length > 0}
                 accept="image/*,application/pdf"
                 maxFiles={5}
               />
-              {feedbackAttachments.length > 0 && (
+              {attachments.length > 0 && (
                 <div className="mt-4 space-y-2">
                   <p className="text-sm font-medium">Uploaded Files:</p>
                   <div className="flex flex-wrap gap-2">
-                    {feedbackAttachments.map((url, index) => (
+                    {attachments.map((url, index) => (
                       <div
                         key={url}
                         className="relative group rounded-md border p-2 hover:bg-accent"
                       >
                         <FilePreview url={url} />
                         <button
-                          onClick={() => setFeedbackAttachments(prev => prev.filter(u => u !== url))}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setAttachments(prev => prev.filter(u => u !== url));
+                          }}
                           className="absolute -top-2 -right-2 bg-destructive text-destructive-foreground rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity"
                         >
                           <X className="h-3 w-3" />
@@ -987,16 +954,16 @@ export default function JobsPage() {
             <Button
               variant="ghost"
               onClick={() => {
-                setCompletionDialog({ isOpen: false, jobId: null, jobTitle: null });
-                setCompletionFeedback("");
-                setFeedbackAttachments([]);
+                setIsCompletionDialogOpen(false);
+                setFeedback("");
+                setAttachments([]);
               }}
             >
               Cancel
             </Button>
             <Button
               onClick={handleCompleteJob}
-              disabled={!completionFeedback.trim()}
+              disabled={!feedback.trim()}
               className="bg-green-600 hover:bg-green-700"
             >
               Mark as Complete
@@ -1005,13 +972,13 @@ export default function JobsPage() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={!!selectedImage} onOpenChange={(open) => !open && setSelectedImage(null)}>
+      <Dialog open={!!selectedJob} onOpenChange={(open) => !open && setSelectedJob(null)}>
         <DialogContent className="max-w-4xl">
           <DialogHeader>
             <DialogTitle>File Preview</DialogTitle>
             <DialogDescription>
               <a 
-                href={selectedImage || ''} 
+                href={selectedJob || ''} 
                 target="_blank" 
                 rel="noopener noreferrer"
                 className="text-sm text-blue-500 hover:underline"
@@ -1021,16 +988,16 @@ export default function JobsPage() {
             </DialogDescription>
           </DialogHeader>
           <div className="relative w-full bg-black/5 rounded-lg overflow-hidden">
-            {selectedImage && (() => {
-              const fileType = getFileType(selectedImage);
+            {selectedJob && (() => {
+              const fileType = getFileType(selectedJob);
 
               switch (fileType) {
                 case 'video':
                   return (
                     <div className="aspect-video bg-black" role="presentation">
                       <video
-                        key={selectedImage}
-                        src={selectedImage}
+                        key={selectedJob}
+                        src={selectedJob}
                         controls
                         controlsList="nodownload"
                         className="w-full h-full"
@@ -1063,7 +1030,7 @@ export default function JobsPage() {
                   return (
                     <div className="aspect-video">
                       <img
-                        src={selectedImage}
+                        src={selectedJob}
                         alt="Full preview"
                         className="w-full h-full object-contain"
                       />
@@ -1074,7 +1041,7 @@ export default function JobsPage() {
                   return (
                     <div className="h-[80vh]">
                       <iframe
-                        src={`https://docs.google.com/viewer?url=${encodeURIComponent(selectedImage)}&embedded=true`}
+                        src={`https://docs.google.com/viewer?url=${encodeURIComponent(selectedJob)}&embedded=true`}
                         className="w-full h-full rounded-lg"
                         frameBorder="0"
                       />
@@ -1086,7 +1053,7 @@ export default function JobsPage() {
                       <FileText className="w-12 h-12 text-gray-400 mx-auto mb-4" />
                       <p className="text-gray-600">Preview not available</p>
                       <a 
-                        href={selectedImage} 
+                        href={selectedJob} 
                         target="_blank" 
                         rel="noopener noreferrer"
                         className="mt-4 inline-block text-blue-500 hover:underline"

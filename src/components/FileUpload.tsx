@@ -23,34 +23,49 @@ export default function FileUpload({
     name: string;
   } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [isProcessing, setIsProcessing] = useState(false);
 
   React.useEffect(() => {
     if (existingFile) {
       handleFilePreview(existingFile);
     }
+    // Cleanup function to revoke object URLs
+    return () => {
+      if (preview?.url && !preview.url.startsWith('data:')) {
+        URL.revokeObjectURL(preview.url);
+      }
+    };
   }, [existingFile]);
 
-  const handleFilePreview = (file: File) => {
-    const isVideo = file.type.startsWith("video/");
-    const isImage = file.type.startsWith("image/");
-    const isOther = !isVideo && !isImage;
+  const handleFilePreview = async (file: File) => {
+    if (isProcessing) return;
+    setIsProcessing(true);
 
-    if (isImage || isVideo) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
+    try {
+      const isVideo = file.type.startsWith("video/");
+      const isImage = file.type.startsWith("image/");
+      const isOther = !isVideo && !isImage;
+
+      if (isImage || isVideo) {
+        // Use URL.createObjectURL instead of FileReader for better performance
+        const objectUrl = URL.createObjectURL(file);
         setPreview({
           type: isVideo ? "video" : "image",
-          url: reader.result as string,
+          url: objectUrl,
           name: file.name
         });
-      };
-      reader.readAsDataURL(file);
-    } else if (isOther) {
-      setPreview({
-        type: "other",
-        url: "",
-        name: file.name
-      });
+      } else if (isOther) {
+        setPreview({
+          type: "other",
+          url: "",
+          name: file.name
+        });
+      }
+    } catch (error) {
+      console.error('Error processing file:', error);
+      alert('Error processing file. Please try again.');
+    } finally {
+      setIsProcessing(false);
     }
   };
 
@@ -69,6 +84,9 @@ export default function FileUpload({
   };
 
   const removeFile = () => {
+    if (preview?.url && !preview.url.startsWith('data:')) {
+      URL.revokeObjectURL(preview.url);
+    }
     onFileChange(null);
     setPreview(null);
     if (fileInputRef.current) {
@@ -81,13 +99,13 @@ export default function FileUpload({
       {preview ? (
         <div className="relative w-full h-64 bg-background rounded-lg border-2 border-border">
           {preview.type === "image" ? (
-            <Image
-              src={preview.url}
-              alt={preview.name}
-              layout="fill"
-              objectFit="contain"
-              className="rounded-lg p-2"
-            />
+            <div className="relative w-full h-full">
+              <img
+                src={preview.url}
+                alt={preview.name}
+                className="rounded-lg p-2 object-contain w-full h-full"
+              />
+            </div>
           ) : preview.type === "video" ? (
             <video
               src={preview.url}
@@ -106,6 +124,7 @@ export default function FileUpload({
             type="button"
             onClick={removeFile}
             className="absolute top-2 right-2 bg-destructive text-destructive-foreground p-1 rounded-full hover:bg-destructive/90 transition-colors"
+            disabled={isProcessing}
           >
             <X size={20} />
           </button>
@@ -136,6 +155,7 @@ export default function FileUpload({
         onChange={handleFileChange}
         className="hidden"
         ref={fileInputRef}
+        disabled={isProcessing}
       />
     </div>
   );

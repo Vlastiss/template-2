@@ -5,11 +5,12 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { collection, addDoc, serverTimestamp, getDocs } from "firebase/firestore";
 import { ref as storageRef, uploadBytes, getDownloadURL } from "firebase/storage";
-import { db, storage } from "@/lib/firebase/firebase";
+import { db, storage, auth } from "@/lib/firebase/firebase";
 import { Upload, LoaderPinwheel } from "lucide-react";
 import { enhanceJobDescription } from "@/lib/utils/openai";
 import { useToast } from "@/hooks/use-toast";
 import FileUpload from "@/components/FileUpload";
+import { useAuth } from "@/lib/hooks/useAuth";
 
 interface JobFormData {
   title: string;
@@ -46,25 +47,83 @@ export default function NewJobPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [users, setUsers] = useState<User[]>([]);
   const [files, setFiles] = useState<File[]>([]);
+  const [isAdmin, setIsAdmin] = useState(false);
   const router = useRouter();
   const { toast } = useToast();
+  const { user } = useAuth();
 
+  // Check admin status
+  useEffect(() => {
+    const checkAdminStatus = async () => {
+      if (!user) {
+        router.push('/');
+        return;
+      }
+      
+      try {
+        const tokenResult = await user.getIdTokenResult(true);
+        const hasAdminRole = tokenResult.claims.role === 'admin';
+        setIsAdmin(hasAdminRole);
+        
+        if (!hasAdminRole) {
+          toast({
+            title: "Access Denied",
+            description: "You don't have permission to create jobs",
+            variant: "destructive",
+          });
+          router.push('/');
+        }
+      } catch (error) {
+        console.error('Error checking admin status:', error);
+        toast({
+          title: "Authentication Error",
+          description: "Please try logging in again",
+          variant: "destructive",
+        });
+        router.push('/');
+      }
+    };
+
+    checkAdminStatus();
+  }, [user, router, toast]);
+
+  // Fetch users
   useEffect(() => {
     const fetchUsers = async () => {
-      const usersCollection = collection(db, "users");
-      const usersSnapshot = await getDocs(usersCollection);
-      const usersData = usersSnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      })) as User[];
-      setUsers(usersData);
+      if (!isAdmin) return;
+      
+      try {
+        const usersCollection = collection(db, "users");
+        const usersSnapshot = await getDocs(usersCollection);
+        const usersData = usersSnapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        })) as User[];
+        setUsers(usersData);
+      } catch (error) {
+        console.error('Error fetching users:', error);
+        toast({
+          title: "Error",
+          description: "Failed to load users list",
+          variant: "destructive",
+        });
+      }
     };
 
     fetchUsers();
-  }, []);
+  }, [isAdmin, toast]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!user || !isAdmin) {
+      toast({
+        title: "Access Denied",
+        description: "You don't have permission to create jobs",
+        variant: "destructive",
+      });
+      return;
+    }
+
     if (!formData.description.trim()) {
       setError("Please enter job details first");
       return;
@@ -74,105 +133,82 @@ export default function NewJobPage() {
     setError("");
 
     try {
-      // Create a temporary ID for the loading state
-      const tempId = `temp-${Date.now()}`;
+      // Get fresh token before upload
+      await auth.currentUser?.getIdToken(true);
       
-      // Add the temp ID to localStorage so it persists across page navigation
-      localStorage.setItem('tempJobId', tempId);
-      
+      // Upload attachments
+      const uploadedUrls: string[] = [];
+      if (formData.attachments.length > 0) {
+        for (const file of formData.attachments) {
+          const fileRef = storageRef(storage, `jobs/${Date.now()}-${file.name}`);
+          try {
+            const snapshot = await uploadBytes(fileRef, file);
+            const downloadUrl = await getDownloadURL(snapshot.ref);
+            uploadedUrls.push(downloadUrl);
+          } catch (uploadError) {
+            console.error('Error uploading file:', uploadError);
+            throw new Error('Failed to upload attachments');
+          }
+        }
+      }
+
       // Show loading toast
       toast({
         title: "Creating job...",
         description: "Your job is being created in the background",
       });
 
-      // Redirect to jobs page immediately
-      router.push('/jobs');
-
-      // Upload attachments in the background
-      const uploadedUrls: string[] = [];
-      if (formData.attachments.length > 0) {
-        for (const file of formData.attachments) {
-          const fileRef = storageRef(storage, `jobs/${Date.now()}-${file.name}`);
-          const snapshot = await uploadBytes(fileRef, file);
-          const downloadUrl = await getDownloadURL(snapshot.ref);
-          uploadedUrls.push(downloadUrl);
-        }
-      }
-
       // Get enhanced description from OpenAI
-      const enhancedDescription = await enhanceJobDescription(formData.description);
-      if (!enhancedDescription) {
-        throw new Error("Failed to enhance job description");
-      }
-
+      let enhancedData = null;
       try {
-        // Parse the JSON response from OpenAI
-        const parsedData = JSON.parse(enhancedDescription);
-
-        // Create the job document with the structured data
-        const jobData = {
-          title: parsedData.jobTitle || formData.title || 'Untitled Job',
-          description: formData.description,
-          enhancedDescription: parsedData.fullDescription || formData.description,
-          jobDescription: parsedData.jobDescription || '',
-          status: "new",
-          createdAt: serverTimestamp(),
-          updatedAt: serverTimestamp(),
-          startTime: formData.startTime || null,
-          assignedTo: formData.assignedTo || null,
-          clientName: parsedData.clientName || 'No Client',
-          clientPhone: parsedData.clientPhone || 'No Phone',
-          clientEmail: parsedData.clientEmail || '',
-          clientAddress: parsedData.clientAddress || 'No Address',
-          attachments: uploadedUrls,
-          timeline: parsedData.timeline || {},
-          requiredTools: parsedData.requiredTools || [],
-          instructions: parsedData.instructions || [],
-          estimatedDuration: parsedData.estimatedDuration || null,
-        };
-
-        // Create the actual job
-        await addDoc(collection(db, "jobs"), jobData);
-
-        // Remove the temp ID from localStorage
-        localStorage.removeItem('tempJobId');
-
-        // Show success toast
-        toast({
-          title: "Success",
-          description: "Job created successfully",
-        });
-      } catch (parseError) {
-        console.error("Error parsing OpenAI response:", parseError);
-        // Fallback to basic job creation
-        const jobData = {
-          title: formData.title || 'Untitled Job',
-          description: formData.description,
-          status: "new",
-          createdAt: serverTimestamp(),
-          updatedAt: serverTimestamp(),
-          startTime: formData.startTime || null,
-          assignedTo: formData.assignedTo || null,
-          attachments: uploadedUrls,
-        };
-
-        await addDoc(collection(db, "jobs"), jobData);
-        localStorage.removeItem('tempJobId');
-        
-        toast({
-          title: "Success",
-          description: "Job created successfully (without AI enhancement)",
-        });
+        const enhancedDescription = await enhanceJobDescription(formData.description);
+        if (enhancedDescription) {
+          enhancedData = JSON.parse(enhancedDescription);
+        }
+      } catch (aiError) {
+        console.error('Error enhancing description:', aiError);
+        // Continue without AI enhancement
       }
+
+      // Create the job document
+      const jobData = {
+        title: enhancedData?.jobTitle || formData.title || 'Untitled Job',
+        description: formData.description,
+        enhancedDescription: enhancedData?.fullDescription || formData.description,
+        jobDescription: enhancedData?.jobDescription || '',
+        status: "new",
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+        createdBy: user.email,
+        startTime: formData.startTime || null,
+        assignedTo: formData.assignedTo || null,
+        clientName: enhancedData?.clientName || formData.clientName || 'No Client',
+        clientPhone: enhancedData?.clientPhone || formData.clientPhone || 'No Phone',
+        clientEmail: enhancedData?.clientEmail || '',
+        clientAddress: enhancedData?.clientAddress || formData.clientAddress || 'No Address',
+        attachments: uploadedUrls,
+        timeline: enhancedData?.timeline || {},
+        requiredTools: enhancedData?.requiredTools || [],
+        instructions: enhancedData?.instructions || [],
+        estimatedDuration: enhancedData?.estimatedDuration || null,
+      };
+
+      // Create the job
+      await addDoc(collection(db, "jobs"), jobData);
+
+      // Show success toast
+      toast({
+        title: "Success",
+        description: "Job created successfully",
+      });
+
+      // Redirect to jobs page
+      router.push('/jobs');
     } catch (error) {
       console.error('Error creating job:', error);
-      // Remove the temp ID if there was an error
-      localStorage.removeItem('tempJobId');
-      
       toast({
         title: "Error",
-        description: "Failed to create job. Please try again.",
+        description: error instanceof Error ? error.message : "Failed to create job",
         variant: "destructive",
       });
     } finally {
@@ -198,6 +234,11 @@ export default function NewJobPage() {
       attachments: fileArray
     }));
   };
+
+  // Only render the form if user is admin
+  if (!isAdmin) {
+    return null;
+  }
 
   return (
     <div className="max-w-4xl mx-auto py-8 px-4">

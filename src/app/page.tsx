@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useAuth } from "@/lib/hooks/useAuth";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
-import { collection, query, orderBy, onSnapshot, where } from "firebase/firestore";
+import { collection, query, orderBy, onSnapshot, where, or } from "firebase/firestore";
 import { db } from "@/lib/firebase/firebase";
 import { PlusCircle } from "lucide-react";
 
@@ -25,7 +25,7 @@ interface JobCounts {
 }
 
 export default function Home() {
-  const { user, isAdmin } = useAuth();
+  const { user } = useAuth();
   const [jobs, setJobs] = useState<Job[]>([]);
   const [jobCounts, setJobCounts] = useState<JobCounts>({
     active: 0,
@@ -33,53 +33,69 @@ export default function Home() {
     pending: 0
   });
   const [loading, setLoading] = useState(true);
+  const [isAdmin, setIsAdmin] = useState(false);
+
+  useEffect(() => {
+    const checkAdminStatus = async () => {
+      if (!user) {
+        setIsAdmin(false);
+        return;
+      }
+      try {
+        const tokenResult = await user.getIdTokenResult();
+        setIsAdmin(tokenResult.claims.role === 'admin');
+      } catch (error) {
+        console.error('Error checking admin status:', error);
+        setIsAdmin(false);
+      }
+    };
+
+    checkAdminStatus();
+  }, [user]);
 
   useEffect(() => {
     if (!user) return;
 
     console.log('Current user:', user.email);
-    console.log('Is admin?', isAdmin());
+    console.log('Is admin?', isAdmin);
 
     let jobsQuery;
-    if (isAdmin()) {
+    if (isAdmin) {
       // Admin sees all jobs
-      jobsQuery = query(collection(db, "jobs"), orderBy("createdAt", "desc"));
+      jobsQuery = query(
+        collection(db, "jobs"), 
+        orderBy("createdAt", "desc")
+      );
       console.log('Using admin query');
     } else {
-      // Employee sees only their assigned jobs
+      // Employee sees jobs where they are assigned (either by email or uid)
       console.log('Using employee query for:', user.email);
-      // Query using either assignedTo (email) or assignedToId (uid)
       jobsQuery = query(
         collection(db, "jobs"),
-        where("assignedTo", "in", [user.email, user.uid])
+        or(
+          where("assignedTo", "==", user.email),
+          where("assignedToId", "==", user.uid)
+        ),
+        orderBy("createdAt", "desc")
       );
     }
     
     const unsubscribe = onSnapshot(jobsQuery, (snapshot) => {
       console.log('Query snapshot size:', snapshot.size);
-      let jobsData = snapshot.docs.map(doc => ({
+      const jobsData = snapshot.docs.map(doc => ({
         id: doc.id,
         ...doc.data()
       })) as Job[];
-
-      // Sort in memory for employee view
-      if (!isAdmin()) {
-        jobsData = jobsData.sort((a, b) => {
-          const dateA = a.createdAt?.toMillis?.() || 0;
-          const dateB = b.createdAt?.toMillis?.() || 0;
-          return dateB - dateA;
-        });
-      }
       
       console.log('Processed jobs:', jobsData);
       setJobs(jobsData);
 
       // Updated counting logic to handle case variations
       const counts = jobsData.reduce((acc, job) => {
-        const status = job.status?.toLowerCase();
+        const status = job.status?.toLowerCase()?.trim();
         if (status === "completed") {
           acc.completed += 1;
-        } else if (status === "in-progress" || status === "in progress" || status === "assigned") {
+        } else if (["in-progress", "in progress", "assigned"].includes(status)) {
           acc.active += 1;
         } else {
           acc.pending += 1;
@@ -120,7 +136,7 @@ export default function Home() {
     <div className="space-y-6">
       <div className="flex justify-between items-center bg-background p-6 rounded-lg shadow-sm border border-border">
         <h1 className="text-3xl font-bold">Dashboard</h1>
-        {isAdmin() && (
+        {isAdmin && (
           <Link href="/jobs/new">
             <Button 
               size="lg"
@@ -176,9 +192,9 @@ export default function Home() {
                       <p className="text-sm text-muted-foreground">{job.clientName}</p>
                     </div>
                     <span className={`px-3 py-1 rounded-full text-sm font-medium ${
-                      job.status === "completed" ? "bg-green-500/20 text-green-500" :
-                      job.status === "in progress" ? "bg-blue-500/20 text-blue-500" :
-                      job.status === "assigned" ? "bg-purple-500/20 text-purple-500" :
+                      job.status?.toLowerCase()?.trim() === "completed" ? "bg-green-500/20 text-green-500" :
+                      job.status?.toLowerCase()?.trim() === "in progress" ? "bg-blue-500/20 text-blue-500" :
+                      job.status?.toLowerCase()?.trim() === "assigned" ? "bg-purple-500/20 text-purple-500" :
                       "bg-gray-500/20 text-gray-500"
                     }`}>
                       {job.status}
@@ -189,7 +205,7 @@ export default function Home() {
             </div>
           ) : (
             <div className="text-muted-foreground text-center py-8">
-              No jobs found. {isAdmin() ? "Create your first job!" : "Check back later for assignments."}
+              No jobs found. {isAdmin ? "Create your first job!" : "Check back later for assignments."}
             </div>
           )}
         </div>

@@ -26,6 +26,7 @@ import {
 import { uploadFile } from "@/lib/firebase/firebaseUtils";
 import { cn } from "@/lib/utils";
 import { serverTimestamp } from "firebase/firestore";
+import { auth } from "@/lib/firebase/firebase";
 
 interface Job {
   id: string;
@@ -121,6 +122,56 @@ const normalizeStatus = (status: string): string => {
   return status?.toLowerCase()?.trim() || "new";
 };
 
+const checkClaims = async () => {
+  const user = auth.currentUser;
+  if (user) {
+    await user.getIdToken(true);
+    const token = await user.getIdTokenResult();
+    console.log('User:', user.email);
+    console.log('Claims:', token.claims);
+    console.log('Admin Role:', token.claims.role === 'admin');
+  }
+};
+
+const setupAdmin = async () => {
+  try {
+    // Get current user
+    const currentUser = auth.currentUser;
+    if (!currentUser) {
+      console.log('No user found');
+      return;
+    }
+
+    // Get current token result
+    const tokenResult = await currentUser.getIdTokenResult(true);
+    
+    // Only proceed with admin setup if user doesn't already have admin role
+    if (tokenResult.claims.role !== 'admin') {
+      // First initialize admin role
+      const response = await fetch('/api/admin/initialize', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          email: currentUser.email
+        })
+      });
+      
+      const result = await response.json();
+      console.log('Admin initialization result:', result);
+      
+      // Force token refresh only if admin was successfully set
+      if (result.success) {
+        await currentUser.getIdToken(true);
+      }
+    }
+  } catch (error) {
+    console.error('Error in setupAdmin:', error);
+    // Don't throw the error - just log it
+  }
+};
+
 export default function JobDetailsPage() {
   const [job, setJob] = useState<Job | null>(null);
   const [loading, setLoading] = useState(true);
@@ -138,29 +189,52 @@ export default function JobDetailsPage() {
   const [uploadingFiles, setUploadingFiles] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Add useEffect to load user role and check admin status
+  // Update the useEffect for loading user role
   useEffect(() => {
     const loadUserRole = async () => {
-      if (!user?.uid) return;
+      if (!user) {
+        setUserRole(null);
+        setIsAdmin(false);
+        return;
+      }
       
       try {
-        const userDoc = await getDoc(doc(db, "users", user.uid));
-        if (userDoc.exists()) {
-          const userData = userDoc.data();
-          const role = userData.role || null;
-          setUserRole(role);
-          setIsAdmin(role === "admin");
-          console.log('User role loaded:', role);
-          console.log('Is admin?', role === "admin");
+        // Get the current ID token result
+        const tokenResult = await user.getIdTokenResult();
+        
+        // Check specifically for role: "admin" in claims
+        const hasAdminRole = tokenResult.claims.role === "admin";
+        
+        setUserRole(tokenResult.claims.role as string);
+        setIsAdmin(hasAdminRole);
+        
+        // If user is meant to be admin but doesn't have the role, set it up
+        if (user.email === 'v@g.com' && !hasAdminRole) {
+          await setupAdmin();
         }
       } catch (err) {
         console.error("Error loading user role:", err);
-        setError("Error loading user permissions");
+        // If token is expired, try to refresh it
+        if (err?.code === 'auth/user-token-expired') {
+          try {
+            await auth.currentUser?.getIdToken(true);
+            // Retry getting token result
+            const newTokenResult = await user.getIdTokenResult();
+            setUserRole(newTokenResult.claims.role as string);
+            setIsAdmin(newTokenResult.claims.role === "admin");
+          } catch (refreshErr) {
+            console.error("Error refreshing token:", refreshErr);
+            setError("Session expired. Please refresh the page.");
+          }
+        } else {
+          setError("Error loading user permissions");
+          setIsAdmin(false);
+        }
       }
     };
 
     loadUserRole();
-  }, [user?.uid]);
+  }, [user]);
 
   // Function to extract client information from description
   const extractClientInfo = (description: string) => {

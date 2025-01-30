@@ -1,0 +1,34 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Helper functions
+    function isAdmin() {
+      return request.auth != null && request.auth.token.role == 'admin';
+    }
+    
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    // Jobs collection rules
+    match /jobs/{jobId} {
+      allow read: if isSignedIn() && (
+        isAdmin() || 
+        resource.data.assignedTo == request.auth.token.email
+      );
+      allow create: if isAdmin();
+      allow update: if isSignedIn() && (
+        isAdmin() || 
+        resource.data.assignedTo == request.auth.token.email ||
+        (resource.data.status == 'new' && request.resource.data.status == 'in-progress')
+      );
+      allow delete: if isAdmin();
+    }
+
+    // Allow admins to read and write all documents
+    match /{document=**} {
+      allow read, write: if isAdmin();
+    }
+  }
+} 
