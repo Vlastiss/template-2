@@ -212,7 +212,7 @@ export default function JobDetailsPage() {
         if (user.email === 'v@g.com' && !hasAdminRole) {
           await setupAdmin();
         }
-      } catch (err) {
+      } catch (err: any) {
         console.error("Error loading user role:", err);
         // If token is expired, try to refresh it
         if (err?.code === 'auth/user-token-expired') {
