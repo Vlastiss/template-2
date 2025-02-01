@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { doc, getDoc, updateDoc } from "firebase/firestore";
+import { doc, getDoc, updateDoc, collection, query, where, getDocs } from "firebase/firestore";
 import { db, storage } from "@/lib/firebase/firebase";
 import { Button } from "@/components/ui/button";
 import Image from "next/image";
@@ -28,10 +28,25 @@ interface EmployeeProfile {
   photoURL: string;
   location: string;
   status: "Active" | "Inactive";
-  balance: number;
-  createdAt?: any;
+  createdAt: any;
   updatedAt?: any;
   isAdmin?: boolean;
+}
+
+interface Job {
+  id: string;
+  title: string;
+  description: string;
+  status: string;
+  assignedTo: string;
+  createdAt: any;
+  dueDate: any;
+  clientName: string;
+  clientAddress: string;
+  clientContact: string;
+  priority: string;
+  requiresToolsMaterials?: string;
+  attachments?: string[];
 }
 
 export default function EmployeeProfilePage() {
@@ -45,6 +60,9 @@ export default function EmployeeProfilePage() {
   const [editedEmployee, setEditedEmployee] = useState<Partial<EmployeeProfile>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [selectedImage, setSelectedImage] = useState<File | null>(null);
+  const [jobs, setJobs] = useState<Job[]>([]);
+  const [loadingJobs, setLoadingJobs] = useState(true);
+  const [completedJobsCount, setCompletedJobsCount] = useState(0);
 
   useEffect(() => {
     const fetchEmployee = async () => {
@@ -69,12 +87,32 @@ export default function EmployeeProfilePage() {
           return;
         }
 
+        const data = employeeDoc.data();
+        console.log("Employee data:", data); // Debug log
+
         const employeeData = {
           id: employeeDoc.id,
-          ...employeeDoc.data()
+          name: data.name || '',
+          email: data.email || '',
+          username: data.username || '',
+          photoURL: data.photoURL || '',
+          location: data.location || '',
+          status: data.status || 'Active',
+          createdAt: data.createdAt || null,
+          updatedAt: data.updatedAt || null,
+          isAdmin: data.isAdmin || false,
         } as EmployeeProfile;
 
-        // Only allow access if user is admin or viewing their own profile
+        // If createdAt doesn't exist, set it now
+        if (!data.createdAt) {
+          const userRef = doc(db, "users", employeeDoc.id);
+          await updateDoc(userRef, {
+            createdAt: new Date()
+          });
+          employeeData.createdAt = new Date();
+        }
+
+        // Allow viewing for admins, but editing only for self
         if (!isAdmin() && user.uid !== employeeData.id) {
           setError("You don't have permission to view this profile");
           setLoading(false);
@@ -95,6 +133,37 @@ export default function EmployeeProfilePage() {
     fetchEmployee();
   }, [params.id, user, isAdmin]);
 
+  useEffect(() => {
+    const fetchJobs = async () => {
+      if (!employee) return;
+
+      try {
+        console.log("Fetching jobs for employee:", employee.email);
+        const jobsQuery = query(
+          collection(db, "jobs"),
+          where("assignedTo", "==", employee.email)
+        );
+        const jobsSnapshot = await getDocs(jobsQuery);
+        const jobsList = jobsSnapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        })) as Job[];
+        
+        // Count completed jobs
+        const completedCount = jobsList.filter(job => job.status.toLowerCase() === "completed").length;
+        setCompletedJobsCount(completedCount);
+        
+        setJobs(jobsList);
+      } catch (error) {
+        console.error("Error fetching jobs:", error);
+      } finally {
+        setLoadingJobs(false);
+      }
+    };
+
+    fetchJobs();
+  }, [employee]);
+
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
     setEditedEmployee(prev => ({
@@ -111,7 +180,14 @@ export default function EmployeeProfilePage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!employee) return;
+    if (!employee || user?.uid !== employee.id) {
+      toast({
+        title: "Error",
+        description: "You can only edit your own profile",
+        variant: "destructive",
+      });
+      return;
+    }
 
     setIsSubmitting(true);
     try {
@@ -127,7 +203,9 @@ export default function EmployeeProfilePage() {
       // Update employee document
       const employeeRef = doc(db, "users", employee.id);
       await updateDoc(employeeRef, {
-        ...editedEmployee,
+        name: editedEmployee.name,
+        username: editedEmployee.username,
+        location: editedEmployee.location,
         photoURL,
         updatedAt: new Date(),
       });
@@ -135,7 +213,9 @@ export default function EmployeeProfilePage() {
       // Update local state
       setEmployee(prev => prev ? {
         ...prev,
-        ...editedEmployee,
+        name: editedEmployee.name || prev.name,
+        username: editedEmployee.username || prev.username,
+        location: editedEmployee.location || prev.location,
         photoURL,
       } : null);
 
@@ -202,7 +282,7 @@ export default function EmployeeProfilePage() {
     return name && name.length > 0 ? name.charAt(0).toUpperCase() : '?';
   };
 
-  const canEdit = isAdmin() || user?.uid === employee.id;
+  const canEdit = Boolean(user && employee && user.uid === employee.id);
 
   return (
     <div className="container mx-auto py-10">
@@ -281,23 +361,115 @@ export default function EmployeeProfilePage() {
               </div>
 
               <div>
-                <h3 className="text-sm font-medium text-muted-foreground">Balance</h3>
-                <p className={`mt-1 ${employee.balance < 0 ? "text-red-600 dark:text-red-400" : "text-foreground"}`}>
-                  {new Intl.NumberFormat('en-US', {
-                    style: 'currency',
-                    currency: 'USD'
-                  }).format(employee.balance)}
-                </p>
+                <h3 className="text-sm font-medium text-muted-foreground">Completed Jobs</h3>
+                <p className="mt-1 text-foreground">{completedJobsCount}</p>
               </div>
 
               <div>
                 <h3 className="text-sm font-medium text-muted-foreground">Member Since</h3>
                 <p className="mt-1 text-foreground">
-                  {employee.createdAt?.toDate?.()
-                    ? new Date(employee.createdAt.toDate()).toLocaleDateString()
-                    : "Not available"}
+                  {employee.createdAt ? (
+                    typeof employee.createdAt === 'object' && 'toDate' in employee.createdAt ?
+                      new Date(employee.createdAt.toDate()).toLocaleDateString('en-US', {
+                        year: 'numeric',
+                        month: 'long',
+                        day: 'numeric'
+                      }) :
+                      new Date(employee.createdAt).toLocaleDateString('en-US', {
+                        year: 'numeric',
+                        month: 'long',
+                        day: 'numeric'
+                      })
+                  ) : (
+                    "Not available"
+                  )}
                 </p>
               </div>
+            </div>
+
+            {/* Jobs Section */}
+            <div className="mt-8">
+              <h3 className="text-lg font-semibold text-foreground mb-4">Assigned Jobs</h3>
+              {loadingJobs ? (
+                <div className="flex justify-center py-4">
+                  <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-gray-900"></div>
+                </div>
+              ) : jobs.length > 0 ? (
+                <div className="grid grid-cols-1 gap-4">
+                  {jobs.map((job) => (
+                    <div
+                      key={job.id}
+                      className="group relative p-6 rounded-lg border border-border bg-card hover:bg-accent/50 transition-colors cursor-pointer"
+                      onClick={() => router.push(`/jobs/${job.id}`)}
+                      role="button"
+                      tabIndex={0}
+                    >
+                      <div className="flex flex-col space-y-4">
+                        {/* Header */}
+                        <div className="flex items-start justify-between">
+                          <div>
+                            <h4 className="text-lg font-semibold text-foreground group-hover:text-foreground/90">{job.title}</h4>
+                            <p className="text-sm text-muted-foreground mt-1">
+                              Created: {job.createdAt?.toDate?.() ? 
+                                new Date(job.createdAt.toDate()).toLocaleDateString('en-US', {
+                                  year: 'numeric',
+                                  month: 'short',
+                                  day: 'numeric'
+                                }) : 
+                                "Not available"
+                              }
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className={`px-3 py-1 rounded-full text-xs font-medium ${
+                              job.status === "Open" ? "bg-blue-500/20 text-blue-600 dark:text-blue-400" :
+                              job.status === "In Progress" ? "bg-yellow-500/20 text-yellow-600 dark:text-yellow-400" :
+                              "bg-green-500/20 text-green-600 dark:text-green-400"
+                            }`}>
+                              {job.status}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Description */}
+                        <div>
+                          <p className="text-sm text-muted-foreground line-clamp-2">{job.description}</p>
+                        </div>
+
+                        {/* Footer */}
+                        <div className="flex items-center justify-between pt-2 border-t border-border/50">
+                          <div className="flex items-center gap-4">
+                            <div className="flex flex-col">
+                              <span className="text-xs text-muted-foreground">Due Date</span>
+                              <span className="text-sm text-foreground">
+                                {job.dueDate?.toDate?.() ? 
+                                  new Date(job.dueDate.toDate()).toLocaleDateString('en-US', {
+                                    year: 'numeric',
+                                    month: 'short',
+                                    day: 'numeric'
+                                  }) : 
+                                  "Not set"
+                                }
+                              </span>
+                            </div>
+                          </div>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="opacity-0 group-hover:opacity-100 transition-opacity"
+                          >
+                            View Details
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-8 rounded-lg border border-border bg-card/50">
+                  <p className="text-muted-foreground">No jobs assigned yet</p>
+                </div>
+              )}
             </div>
           </div>
         </div>
