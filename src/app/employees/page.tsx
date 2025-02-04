@@ -12,7 +12,7 @@ import {
 } from "@/components/ui/userTable";
 import { useAuth } from "@/lib/hooks/useAuth";
 import { db } from "@/lib/firebase/firebase";
-import { collection, getDocs, addDoc, serverTimestamp } from "firebase/firestore";
+import { collection, getDocs, addDoc, serverTimestamp, query, where } from "firebase/firestore";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -33,7 +33,7 @@ interface Employee {
   username: string;
   photoURL: string;
   location: string;
-  completedJobs?: number;
+  completedCards?: number;
 }
 
 interface NewEmployee {
@@ -57,9 +57,8 @@ export default function EmployeesPage() {
   const router = useRouter();
 
   useEffect(() => {
-    const fetchEmployeesAndJobs = async () => {
+    const fetchEmployees = async () => {
       try {
-        // Fetch employees
         const employeesCollection = collection(db, "users");
         const employeesSnapshot = await getDocs(employeesCollection);
         const employeesList = employeesSnapshot.docs.map((doc) => ({
@@ -68,27 +67,39 @@ export default function EmployeesPage() {
         })) as Employee[];
 
         // Fetch completed jobs count for each employee
-        const jobsCollection = collection(db, "jobs");
-        const jobsSnapshot = await getDocs(jobsCollection);
-        const jobs = jobsSnapshot.docs.map(doc => doc.data());
+        const employeesWithCompletedCards = await Promise.all(
+          employeesList.map(async (employee) => {
+            // Query for jobs assigned by ID
+            const jobsByIdQuery = query(
+              collection(db, "jobs"),
+              where("assignedToId", "==", employee.id),
+              where("status", "in", ["Completed", "completed", "COMPLETED"])
+            );
+            const jobsByIdSnapshot = await getDocs(jobsByIdQuery);
 
-        // Count completed jobs for each employee
-        const employeesWithCompletedJobs = employeesList.map(employee => {
-          const completedJobs = jobs.filter(
-            job => job.assignedTo === employee.email && 
-            job.status?.toLowerCase() === "completed"
-          ).length;
-          return { ...employee, completedJobs };
-        });
+            // Query for jobs assigned by email
+            const jobsByEmailQuery = query(
+              collection(db, "jobs"),
+              where("assignedTo", "==", employee.email),
+              where("status", "in", ["Completed", "completed", "COMPLETED"])
+            );
+            const jobsByEmailSnapshot = await getDocs(jobsByEmailQuery);
 
-        setEmployees(employeesWithCompletedJobs);
+            return {
+              ...employee,
+              completedCards: jobsByIdSnapshot.size + jobsByEmailSnapshot.size,
+            };
+          })
+        );
+
+        setEmployees(employeesWithCompletedCards);
       } catch (error) {
-        console.error("Error fetching employees and jobs:", error);
+        console.error("Error fetching employees:", error);
       }
     };
 
     if (user) {
-      fetchEmployeesAndJobs();
+      fetchEmployees();
     }
   }, [user]);
 
@@ -121,20 +132,50 @@ export default function EmployeesPage() {
 
     setIsSubmitting(true);
     try {
+      // Generate a temporary password
+      const tempPassword = Math.random().toString(36).slice(-8);
+      
       const employeeData = {
         ...newEmployee,
         status: "Active",
-        balance: 0,
         photoURL: "",
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       };
 
-      await addDoc(collection(db, "users"), employeeData);
+      // Create the employee document
+      const docRef = await addDoc(collection(db, "users"), employeeData);
+      
+      // Send welcome email with login details
+      const emailResponse = await fetch('/api/email/send', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          to: newEmployee.email,
+          subject: 'Welcome to WorkCard - Your Login Details',
+          html: `
+            <h1>Welcome to WorkCard, ${newEmployee.name}!</h1>
+            <p>Your account has been created successfully. Here are your login details:</p>
+            <ul>
+              <li><strong>Email:</strong> ${newEmployee.email}</li>
+              <li><strong>Temporary Password:</strong> ${tempPassword}</li>
+            </ul>
+            <p>Please login and change your password as soon as possible.</p>
+            <p>You can access the platform at: <a href="${window.location.origin}">${window.location.origin}</a></p>
+            <p>If you have any questions, please contact your administrator.</p>
+          `
+        }),
+      });
+
+      if (!emailResponse.ok) {
+        throw new Error('Failed to send welcome email');
+      }
       
       toast({
         title: "Success",
-        description: "Employee added successfully",
+        description: "Employee added successfully and welcome email sent",
       });
       
       // Reset form and close dialog
@@ -158,7 +199,7 @@ export default function EmployeesPage() {
       console.error("Error adding employee:", error);
       toast({
         title: "Error",
-        description: "Failed to add employee",
+        description: "Failed to add employee or send welcome email",
         variant: "destructive",
       });
     } finally {
@@ -223,11 +264,11 @@ export default function EmployeesPage() {
                 </TableCell>
                 <TableCell>{employee.email}</TableCell>
                 <TableCell className="text-center">
-                  <span className="inline-flex items-center justify-center px-2 py-1 rounded-full text-lg font-medium bg-blue-100 text-blue-800">
-                    {employee.completedJobs || 0}
+                  <span className="inline-flex items-center justify-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                    {employee.completedCards || 0}
                   </span>
                 </TableCell>
-                <TableCell>{employee.location}</TableCell>
+                <TableCell>{employee.location || "Not specified"}</TableCell>
               </TableRow>
             ))}
           </TableBody>
