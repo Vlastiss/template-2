@@ -24,7 +24,7 @@ export default function Navbar() {
   return (
     <nav className="border-b border-border bg-background">
       <div className="container mx-auto px-4">
-        <div className="flex justify-between items-center h-16">
+        <div className="flex justify-between items-center h-16 border-black">
           <Link href="/" className="text-xl font-semibold">
             Handyman Jobs
           </Link>

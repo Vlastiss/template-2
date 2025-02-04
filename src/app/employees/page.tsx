@@ -33,8 +33,7 @@ interface Employee {
   username: string;
   photoURL: string;
   location: string;
-  status: "Active" | "Inactive";
-  balance: number;
+  completedJobs?: number;
 }
 
 interface NewEmployee {
@@ -58,22 +57,38 @@ export default function EmployeesPage() {
   const router = useRouter();
 
   useEffect(() => {
-    const fetchEmployees = async () => {
+    const fetchEmployeesAndJobs = async () => {
       try {
+        // Fetch employees
         const employeesCollection = collection(db, "users");
         const employeesSnapshot = await getDocs(employeesCollection);
         const employeesList = employeesSnapshot.docs.map((doc) => ({
           id: doc.id,
           ...doc.data(),
         })) as Employee[];
-        setEmployees(employeesList);
+
+        // Fetch completed jobs count for each employee
+        const jobsCollection = collection(db, "jobs");
+        const jobsSnapshot = await getDocs(jobsCollection);
+        const jobs = jobsSnapshot.docs.map(doc => doc.data());
+
+        // Count completed jobs for each employee
+        const employeesWithCompletedJobs = employeesList.map(employee => {
+          const completedJobs = jobs.filter(
+            job => job.assignedTo === employee.email && 
+            job.status?.toLowerCase() === "completed"
+          ).length;
+          return { ...employee, completedJobs };
+        });
+
+        setEmployees(employeesWithCompletedJobs);
       } catch (error) {
-        console.error("Error fetching employees:", error);
+        console.error("Error fetching employees and jobs:", error);
       }
     };
 
     if (user) {
-      fetchEmployees();
+      fetchEmployeesAndJobs();
     }
   }, [user]);
 
@@ -172,9 +187,8 @@ export default function EmployeesPage() {
             <TableRow>
               <TableHead>Name</TableHead>
               <TableHead>Email</TableHead>
+              <TableHead className="text-center">Completed Cards</TableHead>
               <TableHead>Location</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead className="text-right">Balance</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -208,19 +222,12 @@ export default function EmployeesPage() {
                   </div>
                 </TableCell>
                 <TableCell>{employee.email}</TableCell>
+                <TableCell className="text-center">
+                  <span className="inline-flex items-center justify-center px-2 py-1 rounded-full text-lg font-medium bg-blue-100 text-blue-800">
+                    {employee.completedJobs || 0}
+                  </span>
+                </TableCell>
                 <TableCell>{employee.location}</TableCell>
-                <TableCell>
-                  <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
-                    employee.status === "Active" ? "bg-green-100 text-green-800" : "bg-gray-100 text-gray-800"
-                  }`}>
-                    {employee.status}
-                  </span>
-                </TableCell>
-                <TableCell className="text-right">
-                  <span className={employee.balance < 0 ? "text-red-600" : "text-gray-900"}>
-                    {formatBalance(employee.balance)}
-                  </span>
-                </TableCell>
               </TableRow>
             ))}
           </TableBody>

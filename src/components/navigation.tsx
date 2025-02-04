@@ -38,22 +38,22 @@ export function Navigation() {
   }
 
   return (
-    <nav className="fixed top-0 left-0 right-0 z-50 flex h-16 items-center justify-between px-4 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+    <nav className="fixed top-0 left-0 right-0 z-50 flex h-16 items-center justify-between px-6 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 border-b border-border">
       <div className="flex items-center gap-2">
-        <h1 className="text-xl font-bold">Handyman Jobs</h1>
+        <h1 className="text-xl font-bold">Work Card X</h1>
       </div>
 
-      <div className="flex-1 flex justify-center">
+      <div className="flex-1 flex justify-center ">
         <Menu setActive={setActive}>
           <MenuItem setActive={setActive} active={active} item="Jobs">
-            <div className="flex flex-col space-y-4 min-w-[16rem] p-2">
+            <div className="flex flex-col space-y-4 min-w-[16rem] p-2 ">
               <Button 
                 variant="ghost" 
                 className="w-full justify-start gap-2"
                 onClick={() => router.push("/jobs")}
               >
                 <Briefcase className="h-5 w-5" />
-                <span>View All Jobs</span>
+                <span>View All Cards</span>
               </Button>
               {isAdmin() && (
                 <Button 
@@ -62,7 +62,7 @@ export function Navigation() {
                   onClick={() => router.push("/jobs/new")}
                 >
                   <Plus className="h-5 w-5" />
-                  <span>Create New Job</span>
+                  <span>Create New Card</span>
                 </Button>
               )}
             </div>

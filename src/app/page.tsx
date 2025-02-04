@@ -133,8 +133,8 @@ export default function Home() {
   }
 
   return (
-    <div className="space-y-6">
-      <div className="flex justify-between items-center bg-background p-6 rounded-lg shadow-sm border border-border">
+    <div className="space-y-4 mt-10">
+      <div className="flex justify-between items-center bg-background p-6 rounded-lg shadow-sm border-border">
         <h1 className="text-3xl font-bold">Dashboard</h1>
         {isAdmin && (
           <Link href="/jobs/new">
