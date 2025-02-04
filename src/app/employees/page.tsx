@@ -11,8 +11,9 @@ import {
   TableRow,
 } from "@/components/ui/userTable";
 import { useAuth } from "@/lib/hooks/useAuth";
-import { db } from "@/lib/firebase/firebase";
-import { collection, getDocs, addDoc, serverTimestamp, query, where } from "firebase/firestore";
+import { db, auth } from "@/lib/firebase/firebase";
+import { collection, getDocs, addDoc, serverTimestamp, query, where, setDoc, doc, deleteDoc } from "firebase/firestore";
+import { createUserWithEmailAndPassword, sendPasswordResetEmail } from "firebase/auth";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -130,23 +131,71 @@ export default function EmployeesPage() {
       return;
     }
 
+    if (!user || !isAdmin()) {
+      toast({
+        title: "Error",
+        description: "You don't have permission to add employees",
+        variant: "destructive",
+      });
+      return;
+    }
+
     setIsSubmitting(true);
     try {
-      // Generate a temporary password
-      const tempPassword = Math.random().toString(36).slice(-8);
-      
+      // First create the user document in Firestore
       const employeeData = {
         ...newEmployee,
         status: "Active",
         photoURL: "",
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
+        isAdmin: false,
       };
 
-      // Create the employee document
-      const docRef = await addDoc(collection(db, "users"), employeeData);
+      // Add the document to Firestore first
+      const userDocRef = doc(collection(db, "users"));
+      await setDoc(userDocRef, {
+        ...employeeData,
+        uid: userDocRef.id, // Use the auto-generated ID as the UID
+      });
+
+      // Then create the Firebase Auth user
+      const tempPassword = Math.random().toString(36).slice(-8) + "Aa1!";
       
-      // Send welcome email with login details
+      try {
+        const userCredential = await createUserWithEmailAndPassword(
+          auth,
+          newEmployee.email,
+          tempPassword
+        );
+
+        // Update the Firestore document with the auth UID if different
+        if (userDocRef.id !== userCredential.user.uid) {
+          await setDoc(doc(db, "users", userCredential.user.uid), {
+            ...employeeData,
+            uid: userCredential.user.uid,
+          });
+          // Delete the temporary document if needed
+          try {
+            await deleteDoc(doc(db, "users", userDocRef.id));
+          } catch (error) {
+            console.error("Error cleaning up temporary document:", error);
+          }
+        }
+
+        // Send password reset email
+        await sendPasswordResetEmail(auth, newEmployee.email);
+      } catch (authError: any) {
+        // If auth creation fails, clean up the Firestore document
+        try {
+          await deleteDoc(userDocRef);
+        } catch (error) {
+          console.error("Error cleaning up after auth failure:", error);
+        }
+        throw authError;
+      }
+      
+      // Send welcome email
       const emailResponse = await fetch('/api/email/send', {
         method: 'POST',
         headers: {
@@ -157,12 +206,9 @@ export default function EmployeesPage() {
           subject: 'Welcome to WorkCard - Your Login Details',
           html: `
             <h1>Welcome to WorkCard, ${newEmployee.name}!</h1>
-            <p>Your account has been created successfully. Here are your login details:</p>
-            <ul>
-              <li><strong>Email:</strong> ${newEmployee.email}</li>
-              <li><strong>Temporary Password:</strong> ${tempPassword}</li>
-            </ul>
-            <p>Please login and change your password as soon as possible.</p>
+            <p>Your account has been created successfully.</p>
+            <p>We've sent you a separate email with a link to set up your password.</p>
+            <p><strong>Please check your email and set up your password to access your account.</strong></p>
             <p>You can access the platform at: <a href="${window.location.origin}">${window.location.origin}</a></p>
             <p>If you have any questions, please contact your administrator.</p>
           `
@@ -175,7 +221,7 @@ export default function EmployeesPage() {
       
       toast({
         title: "Success",
-        description: "Employee added successfully and welcome email sent",
+        description: "Employee added successfully. Password reset email sent.",
       });
       
       // Reset form and close dialog
@@ -195,11 +241,11 @@ export default function EmployeesPage() {
         ...doc.data(),
       })) as Employee[];
       setEmployees(employeesList);
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error adding employee:", error);
       toast({
         title: "Error",
-        description: "Failed to add employee or send welcome email",
+        description: error.message || "Failed to add employee",
         variant: "destructive",
       });
     } finally {
