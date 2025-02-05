@@ -24,7 +24,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useState } from "react";
-
+import Image from "next/image";
 export function Navigation() {
   const { user, isAdmin, signOut } = useAuth();
   const router = useRouter();
@@ -38,9 +38,16 @@ export function Navigation() {
   }
 
   return (
-    <nav className="fixed top-0 left-0 right-0 z-50 flex h-16 items-center justify-between px-6 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 border-b border-border">
-      <div className="flex items-center gap-2">
-        <h1 className="text-xl font-bold">Work Card X</h1>
+    <nav className="fixed top-0 left-0 right-0 z-50 flex h-24 items-center justify-between px-4 md:px-6 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 border-b border-border">
+      <div className="flex items-center px-2">
+        <Image 
+          src="/images/logo.png" 
+          alt="Work Card X Logo" 
+          width={150} 
+          height={75} 
+          className="cursor-pointer py-3 pt-8"
+          onClick={() => router.push('/')}
+        />
       </div>
 
       <div className="flex-1 flex justify-center ">

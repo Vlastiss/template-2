@@ -24,13 +24,17 @@ export default function Navbar() {
   return (
     <nav className="border-b border-border bg-background">
       <div className="container mx-auto px-4">
-        <div className="flex justify-between items-center h-16 border-black">
-          <Link href="/" className="text-xl font-semibold">
-            Handyman Jobs
+        <div className="flex justify-between items-center h-16">
+          <Link 
+            href="/" 
+            className="flex-1 flex items-center h-full px-2 text-xl font-bold hover:opacity-80 transition-opacity cursor-pointer select-none"
+          >
+            <span>Work Card X</span>
           </Link>
 
           <div className="flex items-center space-x-4">
             {user ? (
+              // Signed-in state
               <>
                 <Link 
                   href="/jobs" 
@@ -74,27 +78,30 @@ export default function Navbar() {
                 </div>
               </>
             ) : (
-              <Link href="/login">
-                <Button 
-                  size="lg"
-                  className="bg-blue-600 hover:bg-blue-700 text-white font-semibold shadow-sm px-6 py-2.5 text-base"
+              // Signed-out state - only show Sign In and theme toggle
+              <>
+                <Link href="/login">
+                  <Button 
+                    size="lg"
+                    className="bg-blue-600 hover:bg-blue-700 text-white font-semibold shadow-sm px-6 py-2.5 text-base"
+                  >
+                    Sign In
+                  </Button>
+                </Link>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={toggleTheme}
+                  className="text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
                 >
-                  Sign In
+                  {theme === 'dark' ? (
+                    <Sun className="h-5 w-5" />
+                  ) : (
+                    <Moon className="h-5 w-5" />
+                  )}
                 </Button>
-              </Link>
+              </>
             )}
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={toggleTheme}
-              className="ml-2 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
-            >
-              {theme === 'dark' ? (
-                <Sun className="h-5 w-5" />
-              ) : (
-                <Moon className="h-5 w-5" />
-              )}
-            </Button>
           </div>
         </div>
       </div>
