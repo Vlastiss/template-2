@@ -117,7 +117,7 @@ export default function Home() {
   if (!user) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[60vh] space-y-4">
-        <h1 className="text-4xl font-bold">Welcome to Handyman Jobs</h1>
+        <h1 className="text-4xl font-bold"> Welcome to <span className="text-blue-500 italic">WorkCardX</span></h1>
         <p className="text-xl text-muted-foreground">Please sign in to manage your jobs</p>
         <Link href="/login">
           <Button 

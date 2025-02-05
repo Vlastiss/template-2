@@ -5,7 +5,9 @@ import {
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
   signOut as firebaseSignOut,
-  User 
+  User,
+  GoogleAuthProvider,
+  signInWithPopup
 } from "firebase/auth";
 import { auth } from "../firebase/firebase";
 
@@ -26,6 +28,7 @@ interface AuthContextType {
   signUp: (email: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
   isAdmin: () => boolean;
+  signInWithGoogle: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType>({
@@ -35,6 +38,7 @@ const AuthContext = createContext<AuthContextType>({
   signUp: async () => {},
   signOut: async () => {},
   isAdmin: () => false,
+  signInWithGoogle: async () => {},
 });
 
 export function useAuth() {
@@ -91,6 +95,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return adminEmails.includes(user.email.toLowerCase());
   };
 
+  const signInWithGoogle = async () => {
+    const provider = new GoogleAuthProvider();
+    try {
+      await signInWithPopup(auth, provider);
+    } catch (error) {
+      console.error("Error signing in with Google", error);
+      throw error;
+    }
+  };
+
   return (
     <AuthContext.Provider value={{ 
       user, 
@@ -98,7 +112,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       signIn,
       signUp,
       signOut: signOutUser,
-      isAdmin 
+      isAdmin,
+      signInWithGoogle 
     }}>
       {children}
     </AuthContext.Provider>
