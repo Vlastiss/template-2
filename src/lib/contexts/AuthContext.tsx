@@ -14,10 +14,7 @@ import { auth } from "../firebase/firebase";
 // Get admin emails from environment variable
 const getAdminEmails = () => {
   const adminEmails = process.env.NEXT_PUBLIC_ADMIN_EMAILS;
-  if (!adminEmails) {
-    console.warn('No admin emails configured in environment variables');
-    return [];
-  }
+  if (!adminEmails) return [];
   return adminEmails.split(',').map(email => email.trim().toLowerCase());
 };
 
@@ -27,7 +24,7 @@ interface AuthContextType {
   signIn: (email: string, password: string) => Promise<void>;
   signUp: (email: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
-  isAdmin: () => boolean;
+  isAdmin: () => Promise<boolean>;
   signInWithGoogle: () => Promise<void>;
 }
 
@@ -37,7 +34,7 @@ const AuthContext = createContext<AuthContextType>({
   signIn: async () => {},
   signUp: async () => {},
   signOut: async () => {},
-  isAdmin: () => false,
+  isAdmin: async () => false,
   signInWithGoogle: async () => {},
 });
 
@@ -52,10 +49,13 @@ export function useAuth() {
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
+  const [cachedAdminStatus, setCachedAdminStatus] = useState<boolean | null>(null);
+  const adminCheckInProgress = React.useRef(false);
 
   useEffect(() => {
     const unsubscribe = auth.onAuthStateChanged((user) => {
       setUser(user);
+      setCachedAdminStatus(null); // Reset cache on auth change
       setLoading(false);
     });
 
@@ -89,10 +89,37 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const isAdmin = () => {
-    if (!user?.email) return false;
-    const adminEmails = getAdminEmails();
-    return adminEmails.includes(user.email.toLowerCase());
+  const isAdmin = async () => {
+    // Return cached status if available
+    if (cachedAdminStatus !== null) {
+      return cachedAdminStatus;
+    }
+
+    // Prevent multiple simultaneous checks
+    if (adminCheckInProgress.current) {
+      return false;
+    }
+
+    adminCheckInProgress.current = true;
+
+    try {
+      if (!user?.email) {
+        return false;
+      }
+
+      const userEmail = user.email.toLowerCase();
+      const adminEmails = getAdminEmails();
+      const isAdminUser = adminEmails.includes(userEmail);
+
+      // Schedule state update for next tick
+      Promise.resolve().then(() => {
+        setCachedAdminStatus(isAdminUser);
+      });
+
+      return isAdminUser;
+    } finally {
+      adminCheckInProgress.current = false;
+    }
   };
 
   const signInWithGoogle = async () => {

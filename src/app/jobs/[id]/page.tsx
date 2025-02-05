@@ -37,7 +37,7 @@ interface Job {
   description: string;
   status: string;
   assignedTo: string;
-  startTime: string;
+  startTime: any;
   attachments: string[];
   feedback?: string;
   feedbackAttachments?: string[];
@@ -169,6 +169,28 @@ const setupAdmin = async () => {
   } catch (error) {
     console.error('Error in setupAdmin:', error);
     // Don't throw the error - just log it
+  }
+};
+
+const formatStartTime = (startTime: any): string => {
+  if (!startTime) return "Not set";
+  
+  try {
+    // If it's a Firestore Timestamp
+    if (startTime?.toDate) {
+      return startTime.toDate().toLocaleString();
+    }
+    
+    // If it's an ISO string or other date format
+    const date = new Date(startTime);
+    if (!isNaN(date.getTime())) {
+      return date.toLocaleString();
+    }
+    
+    return "Invalid Date";
+  } catch (error) {
+    console.error("Error formatting date:", error);
+    return "Invalid Date";
   }
 };
 
@@ -558,7 +580,7 @@ export default function JobDetailsPage() {
                   <div>
                     <h3 className="text-sm font-medium text-gray-400">Schedule</h3>
                     <div className="mt-2 space-y-2">
-                      <p className="text-gray-100">Start: {job.startTime ? new Date(job.startTime).toLocaleString() : "Not set"}</p>
+                      <p className="text-gray-100">Start: {formatStartTime(job.startTime)}</p>
                       <p className="text-gray-400">Assigned to: {job.assignedTo || "Not assigned"}</p>
                     </div>
                   </div>

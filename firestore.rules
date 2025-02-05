@@ -2,27 +2,30 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
+    // Helper function to check if user is signed in
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
     // Helper function to check if user is admin
     function isAdmin() {
-      return request.auth != null && (
-        request.auth.token.email in ['vaclav@g.com', 'v@g.com'] ||
-        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
-        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isAdmin == true
+      return isSignedIn() && (
+        request.auth.token.email in ['vaclav@g.com', 'v@g.com', 'vlastis@g.com']
       );
     }
 
     // Users collection rules
     match /users/{userId} {
-      allow read: if request.auth != null;
-      allow create: if request.auth != null && (isAdmin() || userId == request.auth.uid);
-      allow update: if isAdmin() || request.auth.uid == userId;
-      allow delete: if isAdmin();
+      allow read: if isSignedIn();
+      allow write: if isSignedIn();
     }
 
-    // Jobs collection rules
+    // Jobs collection rules - temporarily very permissive for testing
     match /jobs/{jobId} {
-      allow read: if request.auth != null;
-      allow write: if isAdmin();
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update: if isSignedIn();
+      allow delete: if isAdmin();
     }
 
     // Allow admins to read and write all documents

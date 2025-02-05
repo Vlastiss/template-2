@@ -23,14 +23,28 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Image from "next/image";
+
 export function Navigation() {
   const { user, isAdmin, signOut } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
   const { theme, setTheme } = useTheme();
   const [active, setActive] = useState<string | null>(null);
+  const [isAdminUser, setIsAdminUser] = useState(false);
+
+  useEffect(() => {
+    const checkAdmin = async () => {
+      if (user) {
+        const adminStatus = await isAdmin();
+        setIsAdminUser(adminStatus);
+      } else {
+        setIsAdminUser(false);
+      }
+    };
+    checkAdmin();
+  }, [user, isAdmin]);
 
   // Hide navigation on auth-related pages
   if (pathname?.includes('/login') || pathname?.includes('/signup') || pathname?.includes('/auth')) {
@@ -64,7 +78,7 @@ export function Navigation() {
                     <Briefcase className="h-5 w-5" />
                     <span>View All Cards</span>
                   </Button>
-                  {isAdmin() && (
+                  {isAdminUser && (
                     <Button 
                       variant="ghost" 
                       className="w-full justify-start gap-2"
@@ -77,7 +91,7 @@ export function Navigation() {
                 </div>
               </MenuItem>
 
-              {isAdmin() && (
+              {isAdminUser && (
                 <MenuItem setActive={setActive} active={active} item="Employees">
                   <div className="flex flex-col space-y-4 min-w-[16rem] p-2">
                     <Button 
@@ -133,7 +147,7 @@ export function Navigation() {
                       {user?.email}
                     </span>
                     <span className="truncate text-xs font-normal text-muted-foreground">
-                      {isAdmin() ? 'Administrator' : 'Employee'}
+                      {isAdminUser ? 'Administrator' : 'Employee'}
                     </span>
                   </div>
                 </DropdownMenuLabel>

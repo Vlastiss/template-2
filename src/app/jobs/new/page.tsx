@@ -11,6 +11,7 @@ import { enhanceJobDescription } from "@/lib/utils/openai";
 import { useToast } from "@/hooks/use-toast";
 import FileUpload from "@/components/FileUpload";
 import { useAuth } from "@/lib/hooks/useAuth";
+import { useAdminStatus } from '@/lib/hooks/useAdminStatus';
 
 interface JobFormData {
   title: string;
@@ -142,45 +143,22 @@ export default function NewJobPage() {
   const [error, setError] = useState<string>("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [users, setUsers] = useState<User[]>([]);
-  const [isAdmin, setIsAdmin] = useState(false);
   const router = useRouter();
   const { toast } = useToast();
   const { user } = useAuth();
+  const { isAdmin, isLoading } = useAdminStatus();
 
-  // Check admin status
+  // Redirect if not admin
   useEffect(() => {
-    const checkAdminStatus = async () => {
-      if (!user) {
-        router.push('/');
-        return;
-      }
-      
-      try {
-        const tokenResult = await user.getIdTokenResult(true);
-        const hasAdminRole = tokenResult.claims.role === 'admin';
-        setIsAdmin(hasAdminRole);
-        
-        if (!hasAdminRole) {
-          toast({
-            title: "Access Denied",
-            description: "You don't have permission to create jobs",
-            variant: "destructive",
-          });
-          router.push('/');
-        }
-      } catch (error) {
-        console.error('Error checking admin status:', error);
-        toast({
-          title: "Authentication Error",
-          description: "Please try logging in again",
-          variant: "destructive",
-        });
-        router.push('/');
-      }
-    };
-
-    checkAdminStatus();
-  }, [user, router, toast]);
+    if (!isLoading && !isAdmin) {
+      toast({
+        title: "Access Denied",
+        description: "You don't have permission to create jobs",
+        variant: "destructive",
+      });
+      router.push('/');
+    }
+  }, [isAdmin, isLoading, router, toast]);
 
   // Fetch users
   useEffect(() => {
@@ -301,9 +279,29 @@ export default function NewJobPage() {
     e.preventDefault();
     
     if (!user) {
+      console.log('No user found during job creation');
       toast({
         title: "Authentication Error",
         description: "You must be logged in to create jobs",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Log auth state
+    console.log('Current user:', {
+      email: user.email,
+      uid: user.uid,
+      emailVerified: user.emailVerified
+    });
+
+    // Log admin status
+    console.log('Admin status:', isAdmin);
+
+    if (!isAdmin) {
+      toast({
+        title: "Access Denied",
+        description: "You don't have permission to create jobs",
         variant: "destructive",
       });
       return;
@@ -324,8 +322,18 @@ export default function NewJobPage() {
     try {
       // Update progress - Starting
       window.localStorage.setItem('jobUploadProgress', '10');
+      
+      // Log the job data being sent
+      console.log('Attempting to create job with data:', {
+        title: formData.title,
+        status: formData.status,
+        assignedTo: formData.assignedTo,
+        createdBy: user.email,
+        uid: user.uid
+      });
 
       // First get the enhanced description and data from OpenAI
+      console.log('Fetching enhanced description from OpenAI...');
       const response = await fetch('/api/openai/enhance-job', {
         method: 'POST',
         headers: {
@@ -337,31 +345,40 @@ export default function NewJobPage() {
       });
 
       if (!response.ok) {
+        console.error('OpenAI API error:', await response.text());
         throw new Error('Failed to enhance job description');
       }
 
       // Update progress - Got OpenAI response
       window.localStorage.setItem('jobUploadProgress', '40');
+      console.log('Got OpenAI response');
 
       const enhancedData = await response.json();
       
       if (!enhancedData.result) {
+        console.error('Invalid OpenAI response:', enhancedData);
         throw new Error('Invalid response from OpenAI');
       }
 
       const enhancedResult = enhancedData.result;
+      console.log('Enhanced result:', enhancedResult);
 
       // Update progress - Processing attachments
       window.localStorage.setItem('jobUploadProgress', '60');
+      console.log('Processing attachments...');
 
       // Upload attachments
       const uploadPromises = formData.attachments.map(async (file) => {
+        console.log('Uploading file:', file.name);
         const fileRef = storageRef(storage, `jobs/${file.name}`);
         await uploadBytes(fileRef, file);
-        return getDownloadURL(fileRef);
+        const url = await getDownloadURL(fileRef);
+        console.log('File uploaded:', file.name);
+        return url;
       });
 
       const attachmentUrls = await Promise.all(uploadPromises);
+      console.log('All attachments uploaded:', attachmentUrls);
 
       // Update progress - Attachments uploaded
       window.localStorage.setItem('jobUploadProgress', '80');
@@ -396,11 +413,14 @@ export default function NewJobPage() {
         attachments: attachmentUrls,
         createdAt: serverTimestamp(),
         createdBy: user.email,
+        createdById: user.uid,
         feedback: '',
         feedbackAttachments: []
       };
 
-      await addDoc(collection(db, "jobs"), jobData);
+      console.log('Creating job document with data:', jobData);
+      const docRef = await addDoc(collection(db, "jobs"), jobData);
+      console.log('Job created with ID:', docRef.id);
 
       // Update progress - Complete
       window.localStorage.setItem('jobUploadProgress', '100');
