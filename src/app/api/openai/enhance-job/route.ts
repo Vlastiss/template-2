@@ -10,7 +10,7 @@ const openai = new OpenAI({
 
 export async function POST(req: Request) {
   try {
-    const { input } = await req.json();
+    const { input, jobTitle } = await req.json();
 
     if (!input?.trim()) {
       return NextResponse.json(
@@ -48,7 +48,7 @@ Return the data in this exact format:
 }
 
 Make sure to:
-1. Create a descriptive and professional job title based on the main tasks
+1. ${jobTitle ? `Use the provided job title: "${jobTitle}"` : 'Create a descriptive and professional job title based on the main tasks or use the title provided in the input'}
 2. Extract all client details from the input
 3. Format the job description as bullet points using • symbol
 4. Propose reasonable timeline estimates based on the tasks

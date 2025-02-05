@@ -52,7 +52,7 @@ interface NewEmployee {
 
 export default function EmployeesPage() {
   const [employees, setEmployees] = useState<Employee[]>([]);
-  const { user, isAdmin } = useAuth();
+  const { user, isAdmin: isAdminFn } = useAuth();
   const [showNewEmployeeDialog, setShowNewEmployeeDialog] = useState(false);
   const [newEmployee, setNewEmployee] = useState<NewEmployee>({
     name: "",
@@ -63,6 +63,17 @@ export default function EmployeesPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const router = useRouter();
   const [employeeToDelete, setEmployeeToDelete] = useState<Employee | null>(null);
+  const [isAdmin, setIsAdmin] = useState(false);
+
+  useEffect(() => {
+    const checkAdmin = async () => {
+      if (isAdminFn) {
+        const adminStatus = await isAdminFn();
+        setIsAdmin(adminStatus);
+      }
+    };
+    checkAdmin();
+  }, [isAdminFn]);
 
   useEffect(() => {
     const fetchEmployees = async () => {
@@ -138,7 +149,7 @@ export default function EmployeesPage() {
       return;
     }
 
-    if (!user || !isAdmin()) {
+    if (!user || !isAdmin) {
       toast({
         title: "Error",
         description: "You don't have permission to add employees",
@@ -242,7 +253,7 @@ export default function EmployeesPage() {
   };
 
   const handleDeleteEmployee = async (employee: Employee) => {
-    if (!user || !isAdmin()) {
+    if (!user || !isAdmin) {
       toast({
         title: "Error",
         description: "You don't have permission to delete employees",
@@ -300,7 +311,7 @@ export default function EmployeesPage() {
     <div className="container mx-auto py-10">
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-2xl font-bold">Employees</h1>
-        {isAdmin() && (
+        {isAdmin && (
           <Button onClick={() => setShowNewEmployeeDialog(true)}>
             Add New Employee
           </Button>
@@ -315,7 +326,7 @@ export default function EmployeesPage() {
               <TableHead>Email</TableHead>
               <TableHead className="text-center">Completed Cards</TableHead>
               <TableHead>Location</TableHead>
-              {isAdmin() && <TableHead className="w-[100px]">Actions</TableHead>}
+              {isAdmin && <TableHead className="w-[100px]">Actions</TableHead>}
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -355,7 +366,7 @@ export default function EmployeesPage() {
                   </span>
                 </TableCell>
                 <TableCell>{employee.location || "Not specified"}</TableCell>
-                {isAdmin() && (
+                {isAdmin && (
                   <TableCell>
                     <Button
                       variant="ghost"

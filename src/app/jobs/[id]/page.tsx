@@ -562,117 +562,107 @@ export default function JobDetailsPage() {
           </Button>
         </div>
 
-        <Carousel className="w-full">
-          <CarouselContent>
-            {/* First Slide: Original Job Details */}
-            <CarouselItem>
-              <div className="bg-gray-900/50 shadow-lg rounded-lg border border-gray-800 p-6 space-y-6">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div>
-                    <h3 className="text-sm font-medium text-gray-400">Client Information</h3>
-                    <div className="mt-2 space-y-2">
-                      <p className="text-gray-100">{job.clientName || "No client name"}</p>
-                      <p className="text-gray-400">{job.clientContact || "No contact info"}</p>
-                      <p className="text-gray-400">{job.clientAddress || "No address"}</p>
-                    </div>
-                  </div>
-
-                  <div>
-                    <h3 className="text-sm font-medium text-gray-400">Schedule</h3>
-                    <div className="mt-2 space-y-2">
-                      <p className="text-gray-100">Start: {formatStartTime(job.startTime)}</p>
-                      <p className="text-gray-400">Assigned to: {job.assignedTo || "Not assigned"}</p>
-                    </div>
-                  </div>
-                </div>
-
-                <div>
-                  <h3 className="text-sm font-medium text-gray-400">Description</h3>
-                  <p className="mt-2 text-gray-200 whitespace-pre-wrap">{job.description}</p>
-                </div>
-
-                {job.attachments && job.attachments.length > 0 && (
-                  <div>
-                    <h3 className="text-sm font-medium text-gray-400 mb-3">Original Attachments</h3>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      {job.attachments.map((url) => (
-                        <FilePreview
-                          key={url}
-                          url={url}
-                          onClick={() => setSelectedFile(url)}
-                        />
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                <div className="text-sm text-gray-400 pt-4 border-t border-gray-800">
-                  <p>Created: {job.createdAt?.toDate ? formatDate(job.createdAt.toDate()) : "N/A"}</p>
-                  <p>Last Updated: {job.updatedAt?.toDate ? formatDate(job.updatedAt.toDate()) : "N/A"}</p>
-                </div>
+        {/* Main Job Card */}
+        <div className="bg-gray-900/50 shadow-lg rounded-lg border border-gray-800 p-6 space-y-6 mb-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div>
+              <h3 className="text-sm font-medium text-gray-400">Client Information</h3>
+              <div className="mt-2 space-y-2">
+                <p className="text-gray-100">{job.clientName || "No client name"}</p>
+                <p className="text-gray-400">{job.clientContact || "No contact info"}</p>
+                <p className="text-gray-400">{job.clientAddress || "No address"}</p>
               </div>
-            </CarouselItem>
+            </div>
 
-            {/* Second Slide: Completion Feedback */}
-            <CarouselItem>
-              <div className="bg-gray-900/50 shadow-lg rounded-lg border border-gray-800 p-6 space-y-6">
-                <div className="flex items-center justify-between mb-6">
-                  <h2 className="text-xl font-bold text-gray-100">Completion Details</h2>
-                  <span className={`px-3 py-1 rounded-full ${getStatusColor(job.status)}`}>
-                    {job.status?.charAt(0)?.toUpperCase() + job.status?.slice(1)?.toLowerCase()}
-                  </span>
-                </div>
+            <div>
+              <h3 className="text-sm font-medium text-gray-400">Schedule</h3>
+              <div className="mt-2 space-y-2">
+                <p className="text-gray-100">Start: {formatStartTime(job.startTime)}</p>
+                <p className="text-gray-400">Assigned to: {job.assignedTo || "Not assigned"}</p>
+              </div>
+            </div>
+          </div>
 
-                {job.status === "completed" ? (
-                  <>
-                    {job.feedback ? (
-                      <>
-                        <div className="bg-gray-800/50 rounded-lg p-6">
-                          <h3 className="text-lg font-medium text-gray-200 mb-4">Completion Notes</h3>
-                          <p className="text-gray-300 whitespace-pre-wrap">{job.feedback}</p>
-                        </div>
+          <div>
+            <h3 className="text-sm font-medium text-gray-400">Description</h3>
+            <p className="mt-2 text-gray-200 whitespace-pre-wrap">{job.description}</p>
+          </div>
 
-                        {job.feedbackAttachments && job.feedbackAttachments.length > 0 && (
-                          <div className="mt-6">
-                            <h3 className="text-lg font-medium text-gray-200 mb-4">Completion Attachments</h3>
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                              {job.feedbackAttachments.map((url) => (
-                                <FilePreview
-                                  key={url}
-                                  url={url}
-                                  onClick={() => setSelectedFile(url)}
-                                />
-                              ))}
-                            </div>
-                          </div>
-                        )}
-                      </>
-                    ) : (
-                      <div className="text-center py-12">
-                        <p className="text-gray-400">This job is marked as completed but no completion feedback was provided.</p>
+          {job.attachments && job.attachments.length > 0 && (
+            <div>
+              <h3 className="text-sm font-medium text-gray-400 mb-3">Original Attachments</h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {job.attachments.map((url) => (
+                  <FilePreview
+                    key={url}
+                    url={url}
+                    onClick={() => setSelectedFile(url)}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div className="text-sm text-gray-400 pt-4 border-t border-gray-800">
+            <p>Created: {job.createdAt?.toDate ? formatDate(job.createdAt.toDate()) : "N/A"}</p>
+            <p>Last Updated: {job.updatedAt?.toDate ? formatDate(job.updatedAt.toDate()) : "N/A"}</p>
+          </div>
+        </div>
+
+        {/* Completion Details Section */}
+        <div className="bg-gray-900/50 shadow-lg rounded-lg border border-gray-800 p-6 space-y-6">
+          <div className="flex items-center justify-between mb-6">
+            <h2 className="text-xl font-bold text-gray-100">Completion Details</h2>
+            <span className={`px-3 py-1 rounded-full ${getStatusColor(job.status)}`}>
+              {job.status?.charAt(0)?.toUpperCase() + job.status?.slice(1)?.toLowerCase()}
+            </span>
+          </div>
+
+          {job.status === "completed" ? (
+            <>
+              {job.feedback ? (
+                <>
+                  <div className="bg-gray-800/50 rounded-lg p-6">
+                    <h3 className="text-lg font-medium text-gray-200 mb-4">Completion Notes</h3>
+                    <p className="text-gray-300 whitespace-pre-wrap">{job.feedback}</p>
+                  </div>
+
+                  {job.feedbackAttachments && job.feedbackAttachments.length > 0 && (
+                    <div className="mt-6">
+                      <h3 className="text-lg font-medium text-gray-200 mb-4">Completion Attachments</h3>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        {job.feedbackAttachments.map((url) => (
+                          <FilePreview
+                            key={url}
+                            url={url}
+                            onClick={() => setSelectedFile(url)}
+                          />
+                        ))}
                       </div>
-                    )}
-                  </>
-                ) : (
-                  <div className="text-center py-12">
-                    <p className="text-gray-400">This job has not been completed yet.</p>
-                    {!user?.email?.includes("admin") && (
-                      <Button
-                        onClick={() => setShowCompletionDialog(true)}
-                        className="mt-4"
-                        disabled={updating}
-                      >
-                        Mark as Complete
-                      </Button>
-                    )}
-                  </div>
-                )}
-              </div>
-            </CarouselItem>
-          </CarouselContent>
-          <CarouselPrevious className="left-4" />
-          <CarouselNext className="right-4" />
-        </Carousel>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <div className="text-center py-12">
+                  <p className="text-gray-400">This job is marked as completed but no completion feedback was provided.</p>
+                </div>
+              )}
+            </>
+          ) : (
+            <div className="text-center py-12">
+              <p className="text-gray-400">This job has not been completed yet.</p>
+              {!user?.email?.includes("admin") && (
+                <Button
+                  onClick={() => setShowCompletionDialog(true)}
+                  className="mt-4"
+                  disabled={updating}
+                >
+                  Mark as Complete
+                </Button>
+              )}
+            </div>
+          )}
+        </div>
 
         {/* Admin Status Controls */}
         {user?.email?.includes("admin") && (
