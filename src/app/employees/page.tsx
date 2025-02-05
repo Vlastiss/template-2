@@ -13,7 +13,12 @@ import {
 import { useAuth } from "@/lib/hooks/useAuth";
 import { db, auth } from "@/lib/firebase/firebase";
 import { collection, getDocs, addDoc, serverTimestamp, query, where, setDoc, doc, deleteDoc } from "firebase/firestore";
-import { createUserWithEmailAndPassword, sendPasswordResetEmail } from "firebase/auth";
+import { 
+  createUserWithEmailAndPassword, 
+  sendPasswordResetEmail, 
+  getAuth,
+  signOut,
+} from "firebase/auth";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -26,6 +31,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { toast } from "@/hooks/use-toast";
 import { useRouter } from "next/navigation";
+import { Trash2 } from "lucide-react";
 
 interface Employee {
   id: string;
@@ -56,6 +62,7 @@ export default function EmployeesPage() {
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const router = useRouter();
+  const [employeeToDelete, setEmployeeToDelete] = useState<Employee | null>(null);
 
   useEffect(() => {
     const fetchEmployees = async () => {
@@ -142,7 +149,23 @@ export default function EmployeesPage() {
 
     setIsSubmitting(true);
     try {
-      // First create the user document in Firestore
+      // Store the current admin user's email to re-authenticate later
+      const adminEmail = user?.email;
+      
+      // Generate temporary password first
+      const tempPassword = Math.random().toString(36).slice(-8) + "Aa1!";
+      
+      // Create a secondary auth instance for the new user
+      const secondaryAuth = getAuth();
+      
+      // Create Firebase Auth user using the secondary instance
+      const userCredential = await createUserWithEmailAndPassword(
+        secondaryAuth,
+        newEmployee.email,
+        tempPassword
+      );
+
+      // Then create the user document in Firestore with the auth UID
       const employeeData = {
         ...newEmployee,
         status: "Active",
@@ -150,78 +173,39 @@ export default function EmployeesPage() {
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
         isAdmin: false,
+        uid: userCredential.user.uid,
       };
 
-      // Add the document to Firestore first
-      const userDocRef = doc(collection(db, "users"));
-      await setDoc(userDocRef, {
-        ...employeeData,
-        uid: userDocRef.id, // Use the auto-generated ID as the UID
-      });
+      // Add the document to Firestore using the auth UID
+      await setDoc(doc(db, "users", userCredential.user.uid), employeeData);
 
-      // Then create the Firebase Auth user
-      const tempPassword = Math.random().toString(36).slice(-8) + "Aa1!";
+      // Send password reset email using the secondary auth instance
+      await sendPasswordResetEmail(secondaryAuth, newEmployee.email);
       
-      try {
-        const userCredential = await createUserWithEmailAndPassword(
-          auth,
-          newEmployee.email,
-          tempPassword
-        );
-
-        // Update the Firestore document with the auth UID if different
-        if (userDocRef.id !== userCredential.user.uid) {
-          await setDoc(doc(db, "users", userCredential.user.uid), {
-            ...employeeData,
-            uid: userCredential.user.uid,
-          });
-          // Delete the temporary document if needed
-          try {
-            await deleteDoc(doc(db, "users", userDocRef.id));
-          } catch (error) {
-            console.error("Error cleaning up temporary document:", error);
-          }
-        }
-
-        // Send password reset email
-        await sendPasswordResetEmail(auth, newEmployee.email);
-      } catch (authError: any) {
-        // If auth creation fails, clean up the Firestore document
-        try {
-          await deleteDoc(userDocRef);
-        } catch (error) {
-          console.error("Error cleaning up after auth failure:", error);
-        }
-        throw authError;
-      }
+      // Sign out the new user from the secondary auth instance
+      await signOut(secondaryAuth);
       
       // Send welcome email
-      const emailResponse = await fetch('/api/email/send', {
+      const emailResponse = await fetch('/api/auth/send-welcome-email', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          to: newEmployee.email,
-          subject: 'Welcome to WorkCard - Your Login Details',
-          html: `
-            <h1>Welcome to WorkCard, ${newEmployee.name}!</h1>
-            <p>Your account has been created successfully.</p>
-            <p>We've sent you a separate email with a link to set up your password.</p>
-            <p><strong>Please check your email and set up your password to access your account.</strong></p>
-            <p>You can access the platform at: <a href="${window.location.origin}">${window.location.origin}</a></p>
-            <p>If you have any questions, please contact your administrator.</p>
-          `
+          email: newEmployee.email,
+          name: newEmployee.name,
+          password: tempPassword
         }),
       });
 
       if (!emailResponse.ok) {
-        throw new Error('Failed to send welcome email');
+        const errorData = await emailResponse.json();
+        throw new Error(errorData.error || 'Failed to send welcome email');
       }
       
       toast({
         title: "Success",
-        description: "Employee added successfully. Password reset email sent.",
+        description: "Employee added successfully. Welcome email sent with login details.",
       });
       
       // Reset form and close dialog
@@ -257,6 +241,61 @@ export default function EmployeesPage() {
     router.push(`/employees/${employeeId}`);
   };
 
+  const handleDeleteEmployee = async (employee: Employee) => {
+    if (!user || !isAdmin()) {
+      toast({
+        title: "Error",
+        description: "You don't have permission to delete employees",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Don't allow deleting yourself
+    if (employee.id === user.uid) {
+      toast({
+        title: "Error",
+        description: "You cannot delete your own account",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      const response = await fetch('/api/auth/delete-user', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          uid: employee.id,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        console.error('Delete error:', data);
+        throw new Error(data.error || 'Failed to delete user');
+      }
+
+      // Update local state only after successful deletion
+      setEmployees(prev => prev.filter(emp => emp.id !== employee.id));
+
+      toast({
+        title: "Success",
+        description: "Employee deleted successfully",
+      });
+    } catch (error: any) {
+      console.error('Error deleting employee:', error);
+      toast({
+        title: "Error",
+        description: error.message || "Failed to delete employee. Please try again.",
+        variant: "destructive",
+      });
+    }
+  };
+
   return (
     <div className="container mx-auto py-10">
       <div className="flex justify-between items-center mb-6">
@@ -276,6 +315,7 @@ export default function EmployeesPage() {
               <TableHead>Email</TableHead>
               <TableHead className="text-center">Completed Cards</TableHead>
               <TableHead>Location</TableHead>
+              {isAdmin() && <TableHead className="w-[100px]">Actions</TableHead>}
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -315,6 +355,23 @@ export default function EmployeesPage() {
                   </span>
                 </TableCell>
                 <TableCell>{employee.location || "Not specified"}</TableCell>
+                {isAdmin() && (
+                  <TableCell>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="text-red-500 hover:text-red-700 hover:bg-red-100"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (confirm('Are you sure you want to delete this employee? This action cannot be undone.')) {
+                          handleDeleteEmployee(employee);
+                        }
+                      }}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </TableCell>
+                )}
               </TableRow>
             ))}
           </TableBody>
