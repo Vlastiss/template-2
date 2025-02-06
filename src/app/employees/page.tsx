@@ -160,41 +160,67 @@ export default function EmployeesPage() {
 
     setIsSubmitting(true);
     try {
-      // Store the current admin user's email to re-authenticate later
-      const adminEmail = user?.email;
+      // Generate a more reliable temporary password that meets Firebase requirements
+      const numbers = '0123456789';
+      const lowercase = 'abcdefghijklmnopqrstuvwxyz';
+      const uppercase = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+      const special = '!@#$%^&*';
       
-      // Generate temporary password first
-      const tempPassword = Math.random().toString(36).slice(-8) + "Aa1!";
+      const getRandomChar = (str: string) => str.charAt(Math.floor(Math.random() * str.length));
       
-      // Create a secondary auth instance for the new user
-      const secondaryAuth = getAuth();
+      const tempPassword = [
+        getRandomChar(lowercase),
+        getRandomChar(uppercase),
+        getRandomChar(numbers),
+        getRandomChar(special),
+        ...Array(4).fill(null).map(() => getRandomChar(lowercase + uppercase + numbers))
+      ].sort(() => Math.random() - 0.5).join('');
       
-      // Create Firebase Auth user using the secondary instance
-      const userCredential = await createUserWithEmailAndPassword(
-        secondaryAuth,
-        newEmployee.email,
-        tempPassword
-      );
+      // Create user through Firebase Admin API
+      const response = await fetch('/api/auth/create-user', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          email: newEmployee.email,
+          password: tempPassword,
+          displayName: newEmployee.name,
+        }),
+      });
 
-      // Then create the user document in Firestore with the auth UID
+      const responseData = await response.json();
+
+      if (!response.ok) {
+        if (response.status === 400 && responseData.error === 'User with this email already exists') {
+          toast({
+            title: "Error",
+            description: "An employee with this email already exists. Please use a different email address.",
+            variant: "destructive",
+          });
+          return;
+        }
+        throw new Error(responseData.error || 'Failed to create user');
+      }
+
+      const { uid } = responseData;
+
+      // Create the user document in Firestore
       const employeeData = {
-        ...newEmployee,
+        name: newEmployee.name,
+        email: newEmployee.email,
+        username: newEmployee.username || newEmployee.email.split('@')[0],
+        location: newEmployee.location || '',
         status: "Active",
         photoURL: "",
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
         isAdmin: false,
-        uid: userCredential.user.uid,
+        uid: uid,
       };
 
       // Add the document to Firestore using the auth UID
-      await setDoc(doc(db, "users", userCredential.user.uid), employeeData);
-
-      // Send password reset email using the secondary auth instance
-      await sendPasswordResetEmail(secondaryAuth, newEmployee.email);
-      
-      // Sign out the new user from the secondary auth instance
-      await signOut(secondaryAuth);
+      await setDoc(doc(db, "users", uid), employeeData);
       
       // Send welcome email
       const emailResponse = await fetch('/api/auth/send-welcome-email', {
