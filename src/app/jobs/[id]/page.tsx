@@ -2,12 +2,12 @@
 
 import { useEffect, useState, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { doc, getDoc, updateDoc } from "firebase/firestore";
+import { doc, getDoc, updateDoc, serverTimestamp } from "firebase/firestore";
 import { db } from "@/lib/firebase/firebase";
 import { useAuth } from "@/lib/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { formatDate } from "@/lib/utils";
-import { FileText, Download, Upload } from "lucide-react";
+import { FileText, Download, Upload, X } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -25,8 +25,11 @@ import {
 } from "@/components/ui/carousel";
 import { uploadFile } from "@/lib/firebase/firebaseUtils";
 import { cn } from "@/lib/utils";
-import { serverTimestamp } from "firebase/firestore";
 import { auth } from "@/lib/firebase/firebase";
+import { useToast } from "@/hooks/use-toast";
+import { FileUploader } from "@/components/FileUploader";
+import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
+import { storage } from "@/lib/firebase/firebase";
 
 interface Job {
   id: string;
@@ -210,6 +213,7 @@ export default function JobDetailsPage() {
   const [completionAttachments, setCompletionAttachments] = useState<string[]>([]);
   const [uploadingFiles, setUploadingFiles] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const { toast } = useToast();
 
   // Update the useEffect for loading user role
   useEffect(() => {
@@ -454,41 +458,64 @@ export default function JobDetailsPage() {
     }
   };
 
-  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const files = event.target.files;
-    if (!files || !job) return;
+  const handleFileUpload = async (files: File[]) => {
+    if (!files.length || !job || !user?.email) {
+      toast({
+        title: "Error",
+        description: "Please select files and ensure you are logged in.",
+        variant: "destructive",
+      });
+      return;
+    }
 
     setUploadingFiles(true);
-    setError(""); // Clear any previous errors
-    
+
     try {
-      // First check if user has permission
-      if (!user) {
-        throw new Error("You must be logged in to upload files");
-      }
-      
-      if (!isAdmin && job.assignedTo !== user.email && job.status !== "new") {
-        throw new Error("You don't have permission to upload files to this job");
-      }
+      const uploadedUrls: string[] = [];
 
-      const uploadPromises = Array.from(files).map(async file => {
-        // Sanitize the filename
-        const sanitizedName = file.name.replace(/[^a-zA-Z0-9.-]/g, '_');
-        const path = `jobs/${job.id}/feedback/${sanitizedName}`;
-        
+      for (const file of files) {
         try {
-          return await uploadFile(file, path);
-        } catch (uploadErr: any) {
-          console.error(`Error uploading ${file.name}:`, uploadErr);
-          throw new Error(`Failed to upload ${file.name}: ${uploadErr.message}`);
-        }
-      });
+          // Create a unique filename
+          const timestamp = Date.now();
+          const cleanFileName = file.name.replace(/[^a-zA-Z0-9.-]/g, '_');
+          const uniqueFileName = `${timestamp}-${cleanFileName}`;
+          
+          // Create the storage path
+          const storagePath = `jobs/${job.id}/feedback/${uniqueFileName}`;
+          
+          // Log the attempt
+          console.log('Uploading file:', {
+            jobId: job.id,
+            userEmail: user.email,
+            path: storagePath
+          });
 
-      const urls = await Promise.all(uploadPromises);
-      setCompletionAttachments(prev => [...prev, ...urls]);
-    } catch (err: any) {
-      console.error("Error uploading files:", err);
-      setError(err.message || "Failed to upload files. Please try again.");
+          // Simple upload
+          const fileRef = ref(storage, storagePath);
+          const snapshot = await uploadBytes(fileRef, file);
+          const url = await getDownloadURL(snapshot.ref);
+          
+          uploadedUrls.push(url);
+        } catch (error: any) {
+          console.error('Upload error:', error);
+          throw error;
+        }
+      }
+
+      // Update state with new URLs
+      setCompletionAttachments(prev => [...prev, ...uploadedUrls]);
+      
+      toast({
+        title: "Success",
+        description: `Uploaded ${uploadedUrls.length} files successfully.`,
+      });
+    } catch (error: any) {
+      console.error('Upload error:', error);
+      toast({
+        title: "Error",
+        description: "Failed to upload files. Please ensure you have permission.",
+        variant: "destructive",
+      });
     } finally {
       setUploadingFiles(false);
     }
@@ -516,6 +543,80 @@ export default function JobDetailsPage() {
     });
   };
 
+  const handleAcceptJob = async () => {
+    if (!job || !user) return;
+
+    setUpdating(true);
+    try {
+      const jobRef = doc(db, "jobs", job.id);
+      
+      // Update the job status to in-progress
+      await updateDoc(jobRef, {
+        status: "in-progress",
+        updatedAt: serverTimestamp(),
+        startTime: serverTimestamp(),
+        updatedBy: user.email
+      });
+
+      // Update local state
+      setJob({
+        ...job,
+        status: "in-progress",
+        updatedAt: new Date(),
+        startTime: new Date()
+      });
+
+      toast({
+        title: "Job Accepted! 🎉",
+        description: "You can now start working on this job.",
+        duration: 5000,
+      });
+    } catch (error) {
+      console.error("Error accepting job:", error);
+      toast({
+        title: "Error",
+        description: "Failed to accept job. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setUpdating(false);
+    }
+  };
+
+  const handleCompleteJob = async () => {
+    if (!job || !user || !completionNotes.trim()) return;
+
+    try {
+      const jobRef = doc(db, "jobs", job.id);
+      await updateDoc(jobRef, {
+        status: "completed",
+        updatedAt: serverTimestamp(),
+        feedback: completionNotes.trim(),
+        feedbackAttachments: completionAttachments,
+        completedBy: user.email,
+        completedAt: serverTimestamp()
+      });
+
+      setJob({ ...job, status: "completed", feedback: completionNotes.trim(), feedbackAttachments: completionAttachments });
+      setShowCompletionDialog(false);
+      setCompletionNotes("");
+      setCompletionAttachments([]);
+
+      toast({
+        title: "Success! 🎉",
+        description: "Job has been marked as complete.",
+        duration: 5000,
+      });
+    } catch (error) {
+      console.error("Error completing job:", error);
+      toast({
+        title: "Error",
+        description: "Failed to complete job. Please try again.",
+        variant: "destructive",
+      });
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex justify-center items-center min-h-[60vh]">
@@ -539,6 +640,9 @@ export default function JobDetailsPage() {
       </div>
     );
   }
+
+  const canAcceptJob = user?.email === job.assignedTo && job.status === "new";
+  const canCompleteJob = user?.email === job.assignedTo && job.status === "in-progress";
 
   return (
     <div className="py-8">
@@ -651,14 +755,26 @@ export default function JobDetailsPage() {
           ) : (
             <div className="text-center py-12">
               <p className="text-gray-400">This job has not been completed yet.</p>
-              {!user?.email?.includes("admin") && (
-                <Button
-                  onClick={() => setShowCompletionDialog(true)}
-                  className="mt-4"
-                  disabled={updating}
-                >
-                  Mark as Complete
-                </Button>
+              {user?.email === job.assignedTo && (
+                <>
+                  {job.status === "new" ? (
+                    <Button
+                      onClick={handleAcceptJob}
+                      className="mt-4 bg-blue-600 hover:bg-blue-700"
+                      disabled={updating}
+                    >
+                      Accept Job
+                    </Button>
+                  ) : job.status === "in-progress" ? (
+                    <Button
+                      onClick={() => setShowCompletionDialog(true)}
+                      className="mt-4 bg-green-600 hover:bg-green-700"
+                      disabled={updating}
+                    >
+                      Mark as Complete
+                    </Button>
+                  ) : null}
+                </>
               )}
             </div>
           )}
@@ -719,42 +835,45 @@ export default function JobDetailsPage() {
             </DialogHeader>
             
             <div className="space-y-4">
-              <textarea
-                className="w-full min-h-[100px] p-3 rounded-md bg-gray-700 text-gray-100 border border-gray-600"
-                placeholder="Enter completion notes..."
-                value={completionNotes}
-                onChange={(e) => setCompletionNotes(e.target.value)}
-              />
+              <div>
+                <label className="text-sm font-medium mb-2 block">Completion Notes</label>
+                <textarea
+                  className="w-full min-h-[100px] p-3 rounded-md bg-gray-700 text-gray-100 border border-gray-600"
+                  placeholder="Enter completion notes..."
+                  value={completionNotes}
+                  onChange={(e) => setCompletionNotes(e.target.value)}
+                />
+              </div>
               
               <div>
-                <input
-                  type="file"
-                  ref={fileInputRef}
-                  className="hidden"
-                  multiple
-                  onChange={handleFileUpload}
+                <label className="text-sm font-medium mb-2 block">Attachments</label>
+                <FileUploader
+                  onFilesSelected={handleFileUpload}
+                  isUploading={uploadingFiles}
+                  accept="image/*"
+                  maxFiles={5}
                 />
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => fileInputRef.current?.click()}
-                  disabled={uploadingFiles}
-                  className="w-full"
-                >
-                  <Upload className="w-4 h-4 mr-2" />
-                  {uploadingFiles ? "Uploading..." : "Upload Attachments"}
-                </Button>
               </div>
 
               {completionAttachments.length > 0 && (
-                <div className="grid grid-cols-2 gap-2">
-                  {completionAttachments.map((url, index) => (
-                    <FilePreview
-                      key={index}
-                      url={url}
-                      onClick={() => setSelectedFile(url)}
-                    />
-                  ))}
+                <div>
+                  <label className="text-sm font-medium mb-2 block">Uploaded Files</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {completionAttachments.map((url, index) => (
+                      <div key={index} className="relative group">
+                        <FilePreview
+                          url={url}
+                          onClick={() => setSelectedFile(url)}
+                        />
+                        <button
+                          onClick={() => setCompletionAttachments(prev => prev.filter(u => u !== url))}
+                          className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity"
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
             </div>
@@ -763,16 +882,21 @@ export default function JobDetailsPage() {
               <Button
                 type="button"
                 variant="ghost"
-                onClick={() => setShowCompletionDialog(false)}
+                onClick={() => {
+                  setShowCompletionDialog(false);
+                  setCompletionNotes("");
+                  setCompletionAttachments([]);
+                }}
               >
                 Cancel
               </Button>
               <Button
                 type="button"
-                onClick={handleComplete}
-                disabled={!completionNotes || uploadingFiles}
+                onClick={handleCompleteJob}
+                disabled={!completionNotes.trim() || uploadingFiles}
+                className="bg-green-600 hover:bg-green-700"
               >
-                Complete Job
+                {uploadingFiles ? "Uploading..." : "Complete Job"}
               </Button>
             </DialogFooter>
           </DialogContent>

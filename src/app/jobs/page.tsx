@@ -261,123 +261,85 @@ const FilePreview = ({ url }: { url: string }) => {
 
 export default function JobsPage() {
   const router = useRouter();
+  const { user } = useAuth();
   const [jobs, setJobs] = useState<Job[]>([]);
   const [loading, setLoading] = useState(true);
-  const [isCreatingJob, setIsCreatingJob] = useState(false);
-  const { user, isAdmin } = useAuth();
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [selectedJob, setSelectedJob] = useState<Job | null>(null);
+  const [showCompletionDialog, setShowCompletionDialog] = useState(false);
+  const [feedback, setFeedback] = useState("");
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
+  const [isUploading, setIsUploading] = useState(false);
   const { toast } = useToast();
-  const [selectedJob, setSelectedJob] = useState<string | null>(null);
   const [selectedJobTitle, setSelectedJobTitle] = useState<string>("");
   const [isCompletionDialogOpen, setIsCompletionDialogOpen] = useState(false);
-  const [feedback, setFeedback] = useState("");
   const [attachments, setAttachments] = useState<string[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [uploadProgress, setUploadProgress] = useState(0);
 
   useEffect(() => {
-    if (!user) {
-      setLoading(false);
-      return;
-    }
-
-    setLoading(true);
-    let jobsQuery;
-    try {
-      console.log('Current user:', { email: user.email, uid: user.uid, isAdmin: isAdmin() }); // Debug log
-
-      if (isAdmin()) {
-        // Admin sees all jobs
-        jobsQuery = query(collection(db, "jobs"), orderBy("createdAt", "desc"));
-        console.log('Using admin query');
-      } else {
-        // Regular users only see jobs assigned to them
-        if (!user.email) {
-          console.error('User email is missing');
-          toast({
-            title: "Error",
-            description: "User email is not available. Please try logging in again.",
-            variant: "destructive",
-            duration: 5000,
-          });
-          return;
-        }
-
-        console.log('Creating employee query for email:', user.email);
-        jobsQuery = query(
-          collection(db, "jobs"),
-          where("assignedTo", "==", user.email)
-          // orderBy temporarily removed until index is created
-        );
+    const checkAdminStatus = async () => {
+      if (!user) {
+        setIsAdmin(false);
+        return;
       }
+      try {
+        const tokenResult = await user.getIdTokenResult();
+        setIsAdmin(!!tokenResult.claims.role && tokenResult.claims.role === 'admin');
+      } catch (error) {
+        console.error('Error checking admin status:', error);
+        setIsAdmin(false);
+      }
+    };
 
-      const unsubscribe = onSnapshot(jobsQuery, 
-        (snapshot) => {
-          console.log('Query snapshot received, document count:', snapshot.docs.length);
-          
-          const jobsData = snapshot.docs.map((doc) => {
-            const data = doc.data();
-            console.log('Job data:', { id: doc.id, assignedTo: data.assignedTo }); // Debug log
-            return {
-              id: doc.id,
-              ...data,
-            } as Job;
-          });
+    checkAdminStatus();
+  }, [user]);
 
-          // Sort the jobs in memory temporarily
-          if (!isAdmin()) {
-            jobsData.sort((a, b) => {
-              const dateA = a.createdAt?.toDate?.() || new Date(0);
-              const dateB = b.createdAt?.toDate?.() || new Date(0);
-              return dateB.getTime() - dateA.getTime();
-            });
-          }
+  useEffect(() => {
+    if (!user) return;
 
-          console.log('Final jobs data:', jobsData.length, 'jobs');
-          setJobs(jobsData);
-          setLoading(false);
-        },
-        (error) => {
-          console.error("Error fetching jobs:", error);
-          if (error.code === 'failed-precondition') {
-            toast({
-              title: "Database Index Required",
-              description: "The administrator needs to create the required database index. Please follow the setup instructions.",
-              variant: "destructive",
-              duration: 10000,
-            });
-          } else {
-            toast({
-              title: "Error Loading Jobs",
-              description: "There was an error loading the jobs. Please try again later.",
-              variant: "destructive",
-              duration: 5000,
-            });
-          }
-          setLoading(false);
-        }
+    console.log('Current user:', user.email);
+    console.log('Is admin?', isAdmin);
+
+    let jobsQuery;
+    if (isAdmin) {
+      // Admin sees all jobs
+      jobsQuery = query(
+        collection(db, "jobs"), 
+        orderBy("createdAt", "desc")
       );
-
-      return () => {
-        unsubscribe();
-        setLoading(true); // Reset loading state on cleanup
-      };
-    } catch (error) {
-      console.error("Error setting up jobs query:", error);
-      toast({
-        title: "Error",
-        description: "There was an error setting up the jobs view. Please try again later.",
-        variant: "destructive",
-        duration: 5000,
-      });
-      setLoading(false);
+      console.log('Using admin query');
+    } else {
+      // Employee sees only their assigned jobs by email
+      console.log('Using employee query for:', user.email);
+      jobsQuery = query(
+        collection(db, "jobs"),
+        where("assignedTo", "==", user.email),
+        orderBy("createdAt", "desc")
+      );
     }
-  }, [user, isAdmin, toast]);
+
+    const unsubscribe = onSnapshot(jobsQuery, (snapshot) => {
+      const jobsData = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      })) as Job[];
+      
+      setJobs(jobsData);
+      setLoading(false);
+    }, (error) => {
+      console.error('Firestore query error:', error);
+      setLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, [user, isAdmin]);
 
   useEffect(() => {
     // Check for the creating=true parameter
     const path = window.location.pathname;
     if (path === '/jobs' && window.location.search === '?creating=true') {
-      setIsCreatingJob(true);
+      setIsUploading(true);
       setUploadProgress(0);
       // Remove the query parameter
       window.history.replaceState({}, '', '/jobs');
@@ -389,7 +351,7 @@ export default function JobsPage() {
       setUploadProgress(progress);
       
       if (progress >= 100) {
-        setIsCreatingJob(false);
+        setIsUploading(false);
         window.localStorage.removeItem('jobUploadProgress');
       }
     };
@@ -413,7 +375,7 @@ export default function JobsPage() {
 
     try {
       for (const file of files) {
-        const fileRef = ref(storage, `jobs/${selectedJob}/feedback/${file.name}`);
+        const fileRef = ref(storage, `jobs/${selectedJob?.id}/feedback/${file.name}`);
         await uploadBytes(fileRef, file);
         const url = await getDownloadURL(fileRef);
         uploadedUrls.push(url);
@@ -438,7 +400,7 @@ export default function JobsPage() {
     if (!selectedJob || !feedback.trim()) return;
 
     try {
-      const jobRef = doc(db, "jobs", selectedJob);
+      const jobRef = doc(db, "jobs", selectedJob.id);
       await updateDoc(jobRef, {
         status: "completed",
         updatedAt: serverTimestamp(),
@@ -523,7 +485,7 @@ export default function JobsPage() {
                   const fileType = getFileType(url);
                   // Open preview for images, videos, PDFs, and docs
                   if (['image', 'video', 'pdf', 'doc'].includes(fileType)) {
-                    setSelectedJob(url);
+                    setSelectedJob({ ...row.original, id: url } as Job);
                   } else {
                     window.open(url, '_blank');
                   }
@@ -691,7 +653,7 @@ export default function JobsPage() {
         };
 
         // Show different actions based on user role and job status
-        if (isAdmin()) {
+        if (isAdmin) {
           return (
             <div className="flex justify-end gap-2">
               <Button
@@ -784,9 +746,9 @@ export default function JobsPage() {
     <div className="container mx-auto py-10">
       <div className="flex justify-between items-center mb-8">
         <h1 className="text-2xl font-bold">
-          {isAdmin() ? "All Jobs" : "My Assigned Jobs"}
+          {isAdmin ? "All Jobs" : "My Assigned Jobs"}
         </h1>
-        {isAdmin() && (
+        {isAdmin && (
           <Link href="/jobs/new">
             <Button>Create New Job</Button>
           </Link>
@@ -810,7 +772,7 @@ export default function JobsPage() {
           </TableHeader>
           <TableBody>
             {/* Show progress bar while creating */}
-            {isCreatingJob && (
+            {isUploading && (
               <TableRow key="progress-row">
                 <TableCell colSpan={columns.length}>
                   <div className="space-y-2">
@@ -887,7 +849,7 @@ export default function JobsPage() {
                                           className="relative group rounded-md border p-2 hover:bg-accent cursor-pointer"
                                           onClick={(e) => {
                                             e.stopPropagation();
-                                            setSelectedJob(url);
+                                            setSelectedJob({ ...row.original, id: url } as Job);
                                           }}
                                         >
                                           <FilePreview url={url} />
@@ -1016,7 +978,7 @@ export default function JobsPage() {
             <DialogTitle>File Preview</DialogTitle>
             <DialogDescription>
               <a 
-                href={selectedJob || ''} 
+                href={selectedJob?.id || ''} 
                 target="_blank" 
                 rel="noopener noreferrer"
                 className="text-sm text-blue-500 hover:underline"
@@ -1027,15 +989,15 @@ export default function JobsPage() {
           </DialogHeader>
           <div className="relative w-full bg-black/5 rounded-lg overflow-hidden">
             {selectedJob && (() => {
-              const fileType = getFileType(selectedJob);
+              const fileType = getFileType(selectedJob.id);
 
               switch (fileType) {
                 case 'video':
                   return (
                     <div className="aspect-video bg-black" role="presentation">
                       <video
-                        key={selectedJob}
-                        src={selectedJob}
+                        key={selectedJob.id}
+                        src={selectedJob.id}
                         controls
                         controlsList="nodownload"
                         className="w-full h-full"
@@ -1068,7 +1030,7 @@ export default function JobsPage() {
                   return (
                     <div className="aspect-video">
                       <img
-                        src={selectedJob}
+                        src={selectedJob.id}
                         alt="Full preview"
                         className="w-full h-full object-contain"
                       />
@@ -1079,7 +1041,7 @@ export default function JobsPage() {
                   return (
                     <div className="h-[80vh]">
                       <iframe
-                        src={`https://docs.google.com/viewer?url=${encodeURIComponent(selectedJob)}&embedded=true`}
+                        src={`https://docs.google.com/viewer?url=${encodeURIComponent(selectedJob.id)}&embedded=true`}
                         className="w-full h-full rounded-lg"
                         frameBorder="0"
                       />
@@ -1091,7 +1053,7 @@ export default function JobsPage() {
                       <FileText className="w-12 h-12 text-gray-400 mx-auto mb-4" />
                       <p className="text-gray-600">Preview not available</p>
                       <a 
-                        href={selectedJob} 
+                        href={selectedJob.id} 
                         target="_blank" 
                         rel="noopener noreferrer"
                         className="mt-4 inline-block text-blue-500 hover:underline"

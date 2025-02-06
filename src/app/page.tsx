@@ -68,20 +68,21 @@ export default function Home() {
       );
       console.log('Using admin query');
     } else {
-      // Employee sees jobs where they are assigned (either by email or uid)
+      // Employee sees only their assigned jobs by email
       console.log('Using employee query for:', user.email);
-      jobsQuery = query(
+      // Debug the query parameters
+      const employeeQuery = query(
         collection(db, "jobs"),
-        or(
-          where("assignedTo", "==", user.email),
-          where("assignedToId", "==", user.uid)
-        ),
+        where("assignedTo", "==", user.email),
         orderBy("createdAt", "desc")
       );
+      console.log('Query constraints:', (employeeQuery as any)._query.filters);
+      jobsQuery = employeeQuery;
     }
     
     const unsubscribe = onSnapshot(jobsQuery, (snapshot) => {
       console.log('Query snapshot size:', snapshot.size);
+      console.log('Query snapshot docs:', snapshot.docs.map(doc => doc.data()));
       const jobsData = snapshot.docs.map(doc => ({
         id: doc.id,
         ...doc.data()
