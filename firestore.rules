@@ -7,11 +7,17 @@ service cloud.firestore {
       return request.auth != null;
     }
 
-    // Helper function to check if user is admin
-    function isAdmin() {
-      return isSignedIn() && (
-        request.auth.token.email in ['vaclav@g.com', 'v@g.com', 'vlastis@g.com']
-      );
+    function isTeamMember(teamId) {
+      return isSignedIn() && 
+        exists(/databases/$(database)/documents/teamMembers/$(request.auth.uid + '_' + teamId)) &&
+        get(/databases/$(database)/documents/teamMembers/$(request.auth.uid + '_' + teamId)).data.status == 'active';
+    }
+    
+    function isTeamAdmin(teamId) {
+      return isSignedIn() && 
+        exists(/databases/$(database)/documents/teamMembers/$(request.auth.uid + '_' + teamId)) &&
+        (get(/databases/$(database)/documents/teamMembers/$(request.auth.uid + '_' + teamId)).data.role == 'admin' ||
+         get(/databases/$(database)/documents/teamMembers/$(request.auth.uid + '_' + teamId)).data.role == 'owner');
     }
 
     // Users collection rules
@@ -20,12 +26,35 @@ service cloud.firestore {
       allow write: if isSignedIn();
     }
 
-    // Jobs collection rules - temporarily very permissive for testing
-    match /jobs/{jobId} {
-      allow read: if isSignedIn();
+    // Team rules
+    match /teams/{teamId} {
+      allow read: if isTeamMember(teamId);
       allow create: if isSignedIn();
-      allow update: if isSignedIn();
-      allow delete: if isAdmin();
+      allow update, delete: if isTeamAdmin(teamId);
+      
+      // Nested collections within teams
+      match /{document=**} {
+        allow read: if isTeamMember(teamId);
+        allow write: if isTeamAdmin(teamId);
+      }
+    }
+    
+    // Team member rules
+    match /teamMembers/{memberId} {
+      allow read: if isSignedIn() && (
+        resource.data.userId == request.auth.uid ||
+        isTeamAdmin(resource.data.teamId)
+      );
+      allow create: if isTeamAdmin(resource.data.teamId);
+      allow update, delete: if isTeamAdmin(resource.data.teamId);
+    }
+
+    // Job rules - ensure jobs are team-scoped
+    match /jobs/{jobId} {
+      allow read: if isTeamMember(resource.data.teamId);
+      allow create: if isTeamMember(request.resource.data.teamId);
+      allow update: if isTeamMember(resource.data.teamId);
+      allow delete: if isTeamAdmin(resource.data.teamId);
     }
 
     // Allow admins to read and write all documents

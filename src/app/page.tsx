@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { collection, query, orderBy, onSnapshot, where, or } from "firebase/firestore";
 import { db } from "@/lib/firebase/firebase";
 import { PlusCircle } from "lucide-react";
+import { SparklesCore } from "@/components/ui/sparkles";
 
 interface Job {
   id: string;
@@ -117,18 +118,47 @@ export default function Home() {
 
   if (!user) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-[60vh] space-y-4">
-        <h1 className="text-4xl font-bold"> Welcome to <span className="text-blue-500 italic">WorkCardX</span></h1>
-        <p className="text-xl text-muted-foreground">Please sign in to manage your jobs</p>
-        <Link href="/login">
-          <Button 
-            size="lg"
-            variant="default"
-            className="px-8 py-3 text-lg"
-          >
-            Sign In
-          </Button>
-        </Link>
+      <div className="h-[40rem] w-full bg-background flex flex-col items-center justify-center overflow-hidden rounded-md">
+        <h1 className="md:text-7xl text-3xl lg:text-9xl font-bold text-center text-white relative z-20">
+          WorkCardX
+        </h1>
+        <div className="w-[40rem] h-40 relative">
+          {/* Gradients */}
+          <div className="absolute inset-x-20 top-0 bg-gradient-to-r from-transparent via-blue-500 to-transparent h-[2px] w-3/4 blur-sm" />
+          <div className="absolute inset-x-20 top-0 bg-gradient-to-r from-transparent via-blue-500 to-transparent h-px w-3/4" />
+          <div className="absolute inset-x-60 top-0 bg-gradient-to-r from-transparent via-sky-500 to-transparent h-[5px] w-1/4 blur-sm" />
+          <div className="absolute inset-x-60 top-0 bg-gradient-to-r from-transparent via-sky-500 to-transparent h-px w-1/4" />
+
+          {/* Core sparkles component */}
+          <SparklesCore
+            background="transparent"
+            minSize={0.4}
+            maxSize={1}
+            particleDensity={1200}
+            className="w-full h-full"
+            particleColor="#FFFFFF"
+          />
+
+          {/* Radial Gradient to prevent sharp edges */}
+          <div className="absolute inset-0 w-full h-full bg-background [mask-image:radial-gradient(350px_200px_at_top,transparent_20%,white)]"></div>
+        </div>
+        
+        {/* Additional content */}
+        <div className="relative z-20 mt-4">
+          <p className="text-neutral-300 text-xl text-center mb-8">
+            Streamline your job management workflow
+          </p>
+          <div className="flex justify-center">
+            <Link href="/login">
+              <Button 
+                size="lg"
+                className="px-8 py-6 text-lg bg-gradient-to-b from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 border-0 transition-all duration-200 shadow-lg hover:shadow-blue-500/25"
+              >
+                Get Started
+              </Button>
+            </Link>
+          </div>
+        </div>
       </div>
     );
   }
