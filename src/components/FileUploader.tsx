@@ -22,9 +22,34 @@ export function FileUploader({
     onFilesSelected(acceptedFiles);
   }, [onFilesSelected]);
 
+  // Convert accept string to proper format for react-dropzone
+  const getAcceptObject = (acceptString?: string) => {
+    if (!acceptString) return undefined;
+    
+    const acceptTypes = acceptString.split(',').map(type => type.trim());
+    const acceptObject: Record<string, string[]> = {};
+    
+    acceptTypes.forEach(type => {
+      // Handle special cases like 'image/*'
+      if (type.includes('/*')) {
+        const [category] = type.split('/');
+        acceptObject[`${category}/*`] = [];
+      } else {
+        // Group by MIME type category
+        const [category] = type.split('/');
+        if (!acceptObject[`${category}/*`]) {
+          acceptObject[`${category}/*`] = [];
+        }
+        acceptObject[`${category}/*`].push(type);
+      }
+    });
+    
+    return acceptObject;
+  };
+
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
-    accept: accept ? { 'accepted': accept.split(',') } : undefined,
+    accept: getAcceptObject(accept),
     maxFiles,
   });
 
