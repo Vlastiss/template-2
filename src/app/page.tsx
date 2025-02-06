@@ -120,7 +120,7 @@ export default function Home() {
     return (
       <div className="h-[40rem] w-full bg-background flex flex-col items-center justify-center overflow-hidden rounded-md">
         <h1 className="md:text-7xl text-3xl lg:text-9xl font-bold text-center text-white relative z-20">
-          WorkCardX
+          Work<span className="text-blue-500 italic">Card</span>X
         </h1>
         <div className="w-[40rem] h-40 relative">
           {/* Gradients */}
