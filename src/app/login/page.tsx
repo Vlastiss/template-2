@@ -31,15 +31,15 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="flex min-h-[80vh] flex-col justify-center py-12 sm:px-6 lg:px-8">
-      <div className="sm:mx-auto sm:w-full sm:max-w-md">
-        <h2 className="mt-6 text-center text-3xl font-bold tracking-tight">
-          {isSignUp ? "Create an account" : "Sign in to your account"}
-        </h2>
-      </div>
+    <div className="h-screen w-full bg-background fixed inset-0 flex items-center justify-center overflow-hidden">
+      <div className="w-full max-w-md px-4">
+        <div className="text-center mb-8">
+          <h2 className="text-3xl font-bold tracking-tight">
+            {isSignUp ? "Create an account" : "Sign in to your account"}
+          </h2>
+        </div>
 
-      <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
-        <div className="bg-background px-4 py-8 shadow-sm border border-border sm:rounded-lg sm:px-10">
+        <div className="bg-background px-4 py-8 shadow-sm border border-border rounded-lg sm:px-10">
           <form className="space-y-6" onSubmit={handleSubmit}>
             <div>
               <label htmlFor="email" className="block text-sm font-medium">
