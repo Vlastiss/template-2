@@ -23,7 +23,7 @@ service cloud.firestore {
     // Users collection rules
     match /users/{userId} {
       allow read: if isSignedIn();
-      allow write: if isSignedIn();
+      allow write: if isSignedIn() && (request.auth.uid == userId || request.auth.token.admin == true);
     }
 
     // Team rules
@@ -59,7 +59,7 @@ service cloud.firestore {
 
     // Allow admins to read and write all documents
     match /{document=**} {
-      allow read, write: if isAdmin();
+      allow read, write: if request.auth.token.admin == true;
     }
   }
 } 

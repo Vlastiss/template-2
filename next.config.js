@@ -4,10 +4,16 @@ const nextConfig = {
     remotePatterns: [
       {
         protocol: 'https',
-        hostname: 'firebasestorage.googleapis.com',
-        pathname: '**',
+        hostname: 'imageuploaddb-b8d8e.firebasestorage.app',
+        pathname: '/**',
+      },
+      {
+        protocol: 'https',
+        hostname: 'www.gravatar.com',
+        pathname: '/**',
       },
     ],
+    unoptimized: true,
   },
 }
 
