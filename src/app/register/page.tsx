@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { createUserWithEmailAndPassword } from "firebase/auth";
+import { createUserWithEmailAndPassword, sendEmailVerification } from "firebase/auth";
 import { doc, setDoc } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase/firebase";
 import { Button } from "@/components/ui/button";
@@ -24,6 +24,13 @@ export default function RegisterPage() {
       // Create user
       const { user } = await createUserWithEmailAndPassword(auth, email, password);
 
+      // Send verification email with correct settings
+      const actionCodeSettings = {
+        url: `${window.location.origin}/verify-email?redirect=/create-profile`,
+        handleCodeInApp: true,
+      };
+      await sendEmailVerification(user, actionCodeSettings);
+
       // Create user document
       await setDoc(doc(db, "users", user.uid), {
         email: user.email,
@@ -34,11 +41,11 @@ export default function RegisterPage() {
 
       toast({
         title: "Success!",
-        description: "Account created successfully.",
+        description: "Account created successfully. Please check your email to verify your account.",
       });
 
-      // Redirect to complete profile
-      router.push("/complete-form");
+      // Redirect to verify email page
+      router.push("/verify-email");
     } catch (error: any) {
       console.error("Registration error:", error);
       toast({

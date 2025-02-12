@@ -10,6 +10,7 @@ import {
   signInWithPopup
 } from "firebase/auth";
 import { auth } from "../firebase/firebase";
+import { createUserWithVerification } from "../firebase/firebaseUtils";
 
 // Get admin emails from environment variable
 const getAdminEmails = () => {
@@ -73,7 +74,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const signUp = async (email: string, password: string) => {
     try {
-      await createUserWithEmailAndPassword(auth, email, password);
+      await createUserWithVerification(email, password);
     } catch (error) {
       console.error("Error signing up with email/password", error);
       throw error;

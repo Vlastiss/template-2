@@ -3,6 +3,8 @@ import {
   signOut,
   GoogleAuthProvider,
   signInWithPopup,
+  sendEmailVerification,
+  createUserWithEmailAndPassword,
 } from "firebase/auth";
 import {
   collection,
@@ -51,4 +53,23 @@ export const uploadFile = async (file: File, path: string) => {
   const storageRef = ref(storage, path);
   await uploadBytes(storageRef, file);
   return getDownloadURL(storageRef);
+};
+
+export const createUserWithVerification = async (email: string, password: string) => {
+  try {
+    // First create the user
+    const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+    const user = userCredential.user;
+
+    // Send verification email using Firebase's built-in method
+    await sendEmailVerification(user, {
+      url: `${window.location.origin}/verify-email`,
+      handleCodeInApp: true,
+    });
+
+    return user;
+  } catch (error) {
+    console.error("Error creating user:", error);
+    throw error;
+  }
 };

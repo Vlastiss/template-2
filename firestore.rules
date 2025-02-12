@@ -57,6 +57,14 @@ service cloud.firestore {
       allow delete: if isTeamAdmin(resource.data.teamId);
     }
 
+    // Verification tokens collection
+    match /verificationTokens/{tokenId} {
+      allow read: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if request.auth != null && request.resource.data.userId == request.auth.uid;
+      allow update: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow delete: if isSignedIn() && resource.data.userId == request.auth.uid;
+    }
+
     // Allow admins to read and write all documents
     match /{document=**} {
       allow read, write: if request.auth.token.admin == true;
