@@ -58,22 +58,30 @@ export default function CreateProfile() {
         createdAt: new Date().toISOString(),
         createdBy: user.uid,
         email: user.email,
+        status: 'active',
+        updatedAt: new Date().toISOString()
       });
 
-      // Update user profile with company reference
+      // Update user profile
       const userRef = doc(db, "users", user.uid);
       await setDoc(userRef, {
         email: user.email,
         companyId: user.uid,
         role: "owner",
         profileCompleted: true,
+        updatedAt: new Date().toISOString()
       }, { merge: true });
 
-      // Redirect to dashboard
-      router.push('/dashboard');
+      // Redirect to company dashboard
+      const formattedCompanyName = companyName.toLowerCase().replace(/\s+/g, '-');
+      router.push(`/${formattedCompanyName}/dashboard`);
     } catch (err) {
       console.error("Error creating profile:", err);
-      setError("Failed to create profile. Please try again.");
+      if (err instanceof Error) {
+        setError(err.message);
+      } else {
+        setError("Failed to create profile. Please try again.");
+      }
     } finally {
       setIsSubmitting(false);
     }

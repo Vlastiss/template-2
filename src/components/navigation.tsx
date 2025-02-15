@@ -25,6 +25,8 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useState, useEffect } from "react";
 import Image from "next/image";
+import { doc, getDoc } from "firebase/firestore";
+import { db } from "@/lib/firebase/firebase";
 
 export function Navigation() {
   const { user, isAdmin, signOut } = useAuth();
@@ -46,11 +48,58 @@ export function Navigation() {
     checkAdmin();
   }, [user, isAdmin]);
 
-  // Hide navigation on auth-related pages
-  if (pathname?.includes('/login') || pathname?.includes('/signup') || pathname?.includes('/auth')) {
+  // Hide navigation on auth-related pages and profile creation
+  if (
+    !user ||
+    pathname?.includes('/login') || 
+    pathname?.includes('/signup') || 
+    pathname?.includes('/auth') ||
+    pathname?.includes('/create-profile') ||
+    pathname?.includes('/verify-email')
+  ) {
     return null;
   }
 
+  // Show limited navigation for users who haven't completed their profile
+  if (pathname === '/') {
+    return (
+      <nav className="fixed top-0 left-0 right-0 z-[100] flex h-24 items-center justify-between px-4 md:px-6 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 border-b border-border">
+        <div className="flex items-center px-2">
+          <Image 
+            src="/images/logo.png" 
+            alt="Work Card X Logo" 
+            width={150} 
+            height={75} 
+            className="cursor-pointer py-3 pt-8"
+            onClick={() => router.push('/')}
+          />
+        </div>
+        <div className="flex items-center gap-4">
+          <Button 
+            variant="ghost" 
+            onClick={() => router.push('/create-profile')}
+          >
+            Complete Profile
+          </Button>
+          <Button 
+            variant="ghost" 
+            onClick={async () => {
+              try {
+                await signOut();
+                router.push('/');
+              } catch (error) {
+                console.error('Error signing out:', error);
+              }
+            }}
+          >
+            <LogOut className="h-5 w-5" />
+          </Button>
+        </div>
+      </nav>
+    );
+  }
+
+  // Rest of your existing navigation code for users with completed profiles
   return (
     <nav className="fixed top-0 left-0 right-0 z-[100] flex h-24 items-center justify-between px-4 md:px-6 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 border-b border-border">
       <div className="flex items-center px-2">
