@@ -5,6 +5,7 @@ import {
   signInWithPopup,
   sendEmailVerification,
   createUserWithEmailAndPassword,
+  ActionCodeSettings
 } from "firebase/auth";
 import {
   collection,
@@ -13,6 +14,8 @@ import {
   doc,
   updateDoc,
   deleteDoc,
+  setDoc,
+  serverTimestamp
 } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 
@@ -61,10 +64,30 @@ export const createUserWithVerification = async (email: string, password: string
     const userCredential = await createUserWithEmailAndPassword(auth, email, password);
     const user = userCredential.user;
 
-    // Send verification email using Firebase's built-in method
-    await sendEmailVerification(user, {
+    // Configure action code settings
+    const actionCodeSettings: ActionCodeSettings = {
       url: `${window.location.origin}/verify-email`,
       handleCodeInApp: true,
+    };
+
+    // If in development, modify the verification email handling
+    if (process.env.NODE_ENV === 'development') {
+      console.log('Development mode: Email verification link will be logged to console');
+      // The emulator will log the verification link to the console
+    }
+
+    // Send verification email
+    await sendEmailVerification(user, actionCodeSettings);
+
+    // Create initial user document in Firestore
+    await setDoc(doc(db, 'users', user.uid), {
+      email,
+      emailVerified: false,
+      createdAt: serverTimestamp(),
+      uid: user.uid,
+      role: 'user',
+      displayName: user.displayName || email.split('@')[0], // Use part before @ as display name if not set
+      photoURL: user.photoURL || null,
     });
 
     return user;
